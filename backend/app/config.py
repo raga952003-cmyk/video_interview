@@ -36,6 +36,8 @@ class Config:
         os.environ.get("HUGGINGFACE_BASE_URL") or "https://router.huggingface.co/v1"
     ).strip().rstrip("/")
     MISTRAL_API_KEY = (os.environ.get("MISTRAL_API_KEY") or "").strip()
+    # Absolute path to `npm run build` output (index.html + assets/). When set, Flask serves the SPA.
+    FRONTEND_DIST = (os.environ.get("FRONTEND_DIST") or "").strip()
 
 
 def sync_env_into_app(app) -> None:
@@ -82,3 +84,4 @@ def sync_env_into_app(app) -> None:
         os.environ.get("HUGGINGFACE_BASE_URL") or "https://router.huggingface.co/v1"
     ).strip().rstrip("/")
     app.config["MISTRAL_API_KEY"] = (os.environ.get("MISTRAL_API_KEY") or "").strip()
+    app.config["FRONTEND_DIST"] = (os.environ.get("FRONTEND_DIST") or "").strip()

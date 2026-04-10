@@ -1,12 +1,20 @@
 import os
 
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, abort, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from app.config import Config, sync_env_into_app
 from app.limiter_ext import limiter
 from app.models import Base
+
+
+def _spa_dist_dir(cfg: dict) -> str | None:
+    raw = (cfg.get("FRONTEND_DIST") or "").strip()
+    if not raw:
+        return None
+    absd = os.path.abspath(raw)
+    return absd if os.path.isdir(absd) else None
 
 
 def create_app(config_class=Config):
@@ -51,7 +59,10 @@ def create_app(config_class=Config):
 
     @app.get("/")
     def root():
-        """Avoid 404 when someone opens the API base URL in a browser."""
+        """Serve built SPA when FRONTEND_DIST is set; otherwise JSON for API discovery."""
+        dist = _spa_dist_dir(app.config)
+        if dist and os.path.isfile(os.path.join(dist, "index.html")):
+            return send_from_directory(dist, "index.html")
         return jsonify(
             service="ai-interview-coach-api",
             health="/api/health",
@@ -62,6 +73,23 @@ def create_app(config_class=Config):
     def favicon():
         """Browsers request this automatically; Flask has no static favicon by default."""
         return Response(status=204)
+
+    dist = _spa_dist_dir(app.config)
+    if dist:
+
+        @app.get("/<path:path>")
+        def spa_static(path: str):
+            from werkzeug.utils import safe_join
+
+            if path.startswith("api/"):
+                abort(404)
+            candidate = safe_join(dist, path)
+            if candidate is not None and os.path.isfile(candidate):
+                return send_from_directory(dist, path)
+            index = os.path.join(dist, "index.html")
+            if os.path.isfile(index):
+                return send_from_directory(dist, "index.html")
+            abort(404)
 
     @app.teardown_appcontext
     def remove_session(_exc=None):

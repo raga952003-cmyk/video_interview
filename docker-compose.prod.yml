@@ -1,0 +1,28 @@
+# Production-style stack: one service, SQLite persisted on a volume.
+# On the new machine:
+#   1. Copy the project (or clone) and create .env from .env.example with real keys.
+#   2. docker compose -f docker-compose.prod.yml up --build -d
+#   3. Open http://localhost:8080
+#
+# Optional Postgres: use docker-compose.yml `db` service and set DATABASE_URL in .env:
+#   DATABASE_URL=postgresql://coach:coach@db:5432/interview_coach
+#   (add `depends_on: [db]` and link services as needed)
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:5050"
+    env_file:
+      - .env
+    environment:
+      # Ensure SPA is served (matches Dockerfile); override only if you mount assets elsewhere
+      FRONTEND_DIST: /app/frontend/dist
+    volumes:
+      # Persist SQLite DB and uploads path under backend/instance
+      - coach_data:/app/backend/instance
+
+volumes:
+  coach_data:

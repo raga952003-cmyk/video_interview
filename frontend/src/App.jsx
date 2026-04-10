@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { apiUrl } from "./apiBase";
 import "./App.css";
 
 const MAX_MS = 10 * 60 * 1000;
@@ -11,7 +12,7 @@ async function apiJson(path, options = {}) {
   if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
     init.signal = AbortSignal.timeout(timeoutMs);
   }
-  const res = await fetch(path, init);
+  const res = await fetch(apiUrl(path), init);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const base = data.error || res.statusText || "Request failed";

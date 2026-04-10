@@ -1,0 +1,16 @@
+.git
+.gitignore
+**/.venv
+**/venv
+**/node_modules
+**/dist
+**/instance
+**/*.db
+**/__pycache__
+**/*.pyc
+.env
+.env.local
+*.md
+!README.md
+.DS_Store
+*.log
