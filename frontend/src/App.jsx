@@ -16,8 +16,18 @@ async function apiJson(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const base = data.error || res.statusText || "Request failed";
-    const detail = data.detail ? String(data.detail) : "";
-    const msg = detail && !base.includes(detail) ? `${base} (${detail})` : base;
+    let detail = "";
+    if (data.detail != null && data.detail !== "") {
+      detail =
+        typeof data.detail === "object"
+          ? JSON.stringify(data.detail)
+          : String(data.detail);
+    }
+    const fix = data.fix ? String(data.fix) : "";
+    const parts = [base];
+    if (detail && !base.includes(detail)) parts.push(detail);
+    if (fix) parts.push(fix);
+    const msg = parts.join(" — ");
     throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
   }
   return data;

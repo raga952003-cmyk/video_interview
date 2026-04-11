@@ -14,6 +14,42 @@ from app.services.web_scrape import fetch_page_text
 
 bp = Blueprint("api", __name__)
 
+LLM_KEY_FIX = (
+    "On Render: Web Service → Environment → add GOOGLE_API_KEY (Google AI Studio) "
+    "or GROQ_API_KEY or HUGGINGFACE_API_KEY — names must match exactly. "
+    "Save, then Manual Deploy → Deploy latest commit."
+)
+
+
+def _cfg_strip(app, key: str) -> str:
+    return (app.config.get(key) or "").strip()
+
+
+def _llm_configured(app) -> bool:
+    return bool(
+        _cfg_strip(app, "GOOGLE_API_KEY")
+        or _cfg_strip(app, "GROQ_API_KEY")
+        or _cfg_strip(app, "HUGGINGFACE_API_KEY")
+    )
+
+
+def _llm_status_dict(app) -> dict:
+    return {
+        "GOOGLE_API_KEY": bool(_cfg_strip(app, "GOOGLE_API_KEY")),
+        "GROQ_API_KEY": bool(_cfg_strip(app, "GROQ_API_KEY")),
+        "HUGGINGFACE_API_KEY": bool(_cfg_strip(app, "HUGGINGFACE_API_KEY")),
+    }
+
+
+def _need_llm_response(app):
+    return jsonify(
+        {
+            "error": "Server needs at least one LLM key: GOOGLE_API_KEY, GROQ_API_KEY, or HUGGINGFACE_API_KEY",
+            "configured": _llm_status_dict(app),
+            "fix": LLM_KEY_FIX,
+        }
+    ), 503
+
 
 def _session():
     return current_app.extensions["Session"]()
@@ -41,14 +77,23 @@ def health():
     except Exception:
         pass
     keys = {
-        "openai_configured": bool(current_app.config.get("OPENAI_API_KEY")),
-        "gemini_configured": bool(current_app.config.get("GOOGLE_API_KEY")),
-        "groq_configured": bool(current_app.config.get("GROQ_API_KEY")),
+        "openai_configured": bool(_cfg_strip(current_app, "OPENAI_API_KEY")),
+        "gemini_configured": bool(_cfg_strip(current_app, "GOOGLE_API_KEY")),
+        "groq_configured": bool(_cfg_strip(current_app, "GROQ_API_KEY")),
         "huggingface_configured": bool(
-            current_app.config.get("HUGGINGFACE_API_KEY")
+            _cfg_strip(current_app, "HUGGINGFACE_API_KEY")
         ),
     }
-    return jsonify({"status": "ok", "database": db_ok, **keys})
+    llm_ready = _llm_configured(current_app)
+    body = {
+        "status": "ok",
+        "database": db_ok,
+        "llm_ready": llm_ready,
+        **keys,
+    }
+    if not llm_ready:
+        body["fix"] = LLM_KEY_FIX
+    return jsonify(body)
 
 
 @bp.route("/roles", methods=["GET"])
@@ -63,16 +108,8 @@ def roles():
 @bp.post("/prepare-from-resume")
 @limiter.limit("20 per hour")
 def prepare_from_resume():
-    if not (
-        current_app.config.get("GOOGLE_API_KEY")
-        or current_app.config.get("GROQ_API_KEY")
-        or current_app.config.get("HUGGINGFACE_API_KEY")
-    ):
-        return jsonify(
-            {
-                "error": "Server needs at least one LLM key: GOOGLE_API_KEY, GROQ_API_KEY, or HUGGINGFACE_API_KEY"
-            }
-        ), 503
+    if not _llm_configured(current_app):
+        return _need_llm_response(current_app)
 
     role = (request.form.get("role") or "").strip()
     if not role:
@@ -137,16 +174,8 @@ def prepare_from_resume():
 @bp.post("/prepare-from-web")
 @limiter.limit("15 per hour")
 def prepare_from_web():
-    if not (
-        current_app.config.get("GOOGLE_API_KEY")
-        or current_app.config.get("GROQ_API_KEY")
-        or current_app.config.get("HUGGINGFACE_API_KEY")
-    ):
-        return jsonify(
-            {
-                "error": "Server needs at least one LLM key: GOOGLE_API_KEY, GROQ_API_KEY, or HUGGINGFACE_API_KEY"
-            }
-        ), 503
+    if not _llm_configured(current_app):
+        return _need_llm_response(current_app)
 
     data = request.get_json(silent=True) or {}
     role = (data.get("role") or request.form.get("role") or "").strip()
@@ -247,24 +276,17 @@ def analyze_answer_route():
     except ValueError:
         return jsonify({"error": "Invalid question_id"}), 400
 
-    if not current_app.config.get("OPENAI_API_KEY") and not current_app.config.get(
-        "GROQ_API_KEY"
+    if not _cfg_strip(current_app, "OPENAI_API_KEY") and not _cfg_strip(
+        current_app, "GROQ_API_KEY"
     ):
         return jsonify(
             {
-                "error": "Need OPENAI_API_KEY and/or GROQ_API_KEY for speech-to-text (OpenAI Whisper, then Groq Whisper fallback)"
+                "error": "Need OPENAI_API_KEY and/or GROQ_API_KEY for speech-to-text (OpenAI Whisper, then Groq Whisper fallback)",
+                "fix": "Render → Environment → add OPENAI_API_KEY and/or GROQ_API_KEY, save, redeploy.",
             }
         ), 503
-    if not (
-        current_app.config.get("GOOGLE_API_KEY")
-        or current_app.config.get("GROQ_API_KEY")
-        or current_app.config.get("HUGGINGFACE_API_KEY")
-    ):
-        return jsonify(
-            {
-                "error": "Server needs at least one LLM key: GOOGLE_API_KEY, GROQ_API_KEY, or HUGGINGFACE_API_KEY"
-            }
-        ), 503
+    if not _llm_configured(current_app):
+        return _need_llm_response(current_app)
 
     s = _session()
     q_text, ideal, _src = _resolve_question(s, qid)
