@@ -2,9 +2,10 @@
 # After you connect this repo in Render → New → Blueprint, you get a URL like:
 #   https://<service-name>.onrender.com
 #
-# In the Render dashboard add Environment variables (required for full functionality):
-#   OPENAI_API_KEY, GOOGLE_API_KEY (and/or GROQ_API_KEY, HUGGINGFACE_API_KEY)
-# Optional: GROQ_WHISPER_MODEL, GEMINI_MODEL, SECRET_KEY, CORS_ORIGINS
+# Link your Environment Group by **name** (dashboard name), not the URL id (evg-…).
+# If your group is not named INTERVIEW, change `fromGroup` below to match exactly.
+# Still add OPENAI_API_KEY on the group or service for Whisper.
+# Docs: https://render.com/docs/blueprint-spec#setting-environment-variables
 #
 # Note: Render free tier may enforce ~100s HTTP request limits; long Whisper+LLM
 # calls can fail on free plans. Use Fly.io, a VPS, or ngrok to local Docker for heavy use.
@@ -17,3 +18,6 @@ services:
     dockerContext: .
     plan: free
     healthCheckPath: /api/health
+    # Injects every variable from the Environment Group named "INTERVIEW"
+    envVars:
+      - fromGroup: INTERVIEW
