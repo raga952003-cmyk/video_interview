@@ -100,7 +100,7 @@ class Config:
         os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
     ).strip()
     SUPABASE_STORAGE_BUCKET = (
-        os.environ.get("SUPABASE_STORAGE_BUCKET") or "interview-recordings"
+        os.environ.get("SUPABASE_STORAGE_BUCKET") or "video"
     ).strip()
 
 
@@ -171,5 +171,5 @@ def sync_env_into_app(app) -> None:
         os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
     ).strip()
     app.config["SUPABASE_STORAGE_BUCKET"] = (
-        os.environ.get("SUPABASE_STORAGE_BUCKET") or "interview-recordings"
+        os.environ.get("SUPABASE_STORAGE_BUCKET") or "video"
     ).strip()

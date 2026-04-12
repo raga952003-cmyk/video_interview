@@ -39,8 +39,7 @@ def main() -> None:
     print("SUPABASE_STORAGE_BUCKET:", bucket or "(empty — will not be ready)")
 
     if not recording_storage_supabase_ready(cfg):
-        print("\nNot ready: need all three variables non-empty (bucket default is interview-recordings).")
-        print("If your bucket is named `video`, set SUPABASE_STORAGE_BUCKET=video")
+        print("\nNot ready: need SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY set (bucket defaults to video).")
         raise SystemExit(1)
 
     path = "recordings/_smoke_test.txt"

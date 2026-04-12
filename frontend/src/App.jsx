@@ -95,7 +95,7 @@ export default function App() {
   const recordingIsVideoRef = useRef(false);
   /** Bump after a video recording stops so preview `getUserMedia` runs again. */
   const [videoPreviewKey, setVideoPreviewKey] = useState(0);
-  /** After Stop: preview locally; "Save & get feedback" uploads and stores on server. */
+  /** After Stop: preview locally; "Next" uploads and stores on server. */
   const [pendingRecording, setPendingRecording] = useState(null);
   /**
    * Video mode on but camera unavailable — we still record & analyze **voice** (same as audio mode).
@@ -926,9 +926,9 @@ export default function App() {
             <>
               <h3 className="review-block-title">Preview your answer</h3>
               <p className="hint">
-                Play it back, then <strong>Save & get feedback</strong> to store it on the
-                server and run transcription + coaching. <strong>Record again</strong>{" "}
-                discards this clip.
+                Play it back, then tap <strong>Next</strong> to store it on the server and
+                run transcription + coaching. <strong>Record again</strong> discards this
+                clip.
               </p>
               {pendingRecording.isVideo ? (
                 <video
@@ -951,7 +951,7 @@ export default function App() {
                   onClick={handleSavePendingRecording}
                   disabled={loading}
                 >
-                  {loading ? "Saving…" : "Save & get feedback"}
+                  {loading ? "Please wait…" : "Next"}
                 </button>
                 <button
                   type="button"
