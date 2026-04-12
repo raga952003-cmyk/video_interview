@@ -1,9 +1,11 @@
 # Render Blueprint: https://render.com/docs/blueprint-spec
 # New → Blueprint → connect repo → deploy. URL: https://<service-name>.onrender.com
 #
-# After the first deploy, open the service → Environment and set:
-#   OPENAI_API_KEY, GOOGLE_API_KEY (and/or GROQ_API_KEY, HUGGINGFACE_API_KEY).
-# Optional: CORS_ORIGINS = your public URL (same-origin Docker UI usually needs no change).
+# After the first deploy, open the service → Environment and set at least:
+#   - Speech-to-text: OPENAI_API_KEY and/or GROQ_API_KEY (or LOCAL_WHISPER=1 for CPU Whisper)
+#   - Grading: GOOGLE_API_KEY and/or GROQ_API_KEY and/or HUGGINGFACE_API_KEY
+# Optional: GEMINI_MODEL, ADMIN_API_KEY (admin APIs), CORS_ORIGINS if UI is on another domain.
+# SQLite + recordings live in the container filesystem unless you attach a disk or use DATABASE_URL (Postgres).
 #
 # To use a Render Environment Group instead, replace `envVars` below with:
 #   envVars: [ { fromGroup: YOUR_GROUP_NAME } ]
@@ -31,4 +33,12 @@ services:
       - key: HUGGINGFACE_API_KEY
         sync: false
       - key: CORS_ORIGINS
+        sync: false
+      - key: GEMINI_MODEL
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: LOCAL_WHISPER
+        sync: false
+      - key: DATABASE_URL
         sync: false
