@@ -6,6 +6,28 @@ const MAX_MS = 10 * 60 * 1000;
 /** Whisper + Gemini can take several minutes — match Vite proxy (10m). */
 const API_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** VP8 first — VP9 record often fails on some Windows/GPU setups. */
+function createVideoMediaRecorder(stream) {
+  if (typeof MediaRecorder === "undefined") {
+    throw new Error("This browser does not support MediaRecorder.");
+  }
+  const types = [
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
+    "video/webm",
+  ];
+  for (const mimeType of types) {
+    if (MediaRecorder.isTypeSupported(mimeType)) {
+      try {
+        return new MediaRecorder(stream, { mimeType });
+      } catch {
+        /* try next */
+      }
+    }
+  }
+  return new MediaRecorder(stream);
+}
+
 async function apiJson(path, options = {}) {
   const { timeoutMs = API_TIMEOUT_MS, ...fetchOpts } = options;
   const init = { ...fetchOpts };
@@ -62,6 +84,24 @@ export default function App() {
   const bankSeenIdsRef = useRef(new Set());
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
+  const videoPreviewRef = useRef(null);
+  /** Record camera + mic (WebM video); server transcribes the audio track. */
+  const [videoInterview, setVideoInterview] = useState(false);
+  const videoInterviewRef = useRef(false);
+  useEffect(() => {
+    videoInterviewRef.current = videoInterview;
+  }, [videoInterview]);
+  /** Set when a clip starts so onstop always knows audio vs video upload. */
+  const recordingIsVideoRef = useRef(false);
+  /** Bump after a video recording stops so preview `getUserMedia` runs again. */
+  const [videoPreviewKey, setVideoPreviewKey] = useState(0);
+  /** After Stop: preview locally; "Save & get feedback" uploads and stores on server. */
+  const [pendingRecording, setPendingRecording] = useState(null);
+  /**
+   * Video mode on but camera unavailable — we still record & analyze **voice** (same as audio mode).
+   * The server never scores your face; it only transcribes speech.
+   */
+  const [noCameraAudioOnly, setNoCameraAudioOnly] = useState(false);
   const timerRef = useRef(null);
   const startRef = useRef(0);
   const recognitionRef = useRef(null);
@@ -85,6 +125,10 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!videoInterview) setNoCameraAudioOnly(false);
+  }, [videoInterview]);
+
   const stopLiveRecognition = useCallback(() => {
     const rec = recognitionRef.current;
     if (rec) {
@@ -103,6 +147,9 @@ export default function App() {
   const stopTracks = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    if (videoPreviewRef.current) {
+      videoPreviewRef.current.srcObject = null;
+    }
   }, []);
 
   const clearRecorderTimer = useCallback(() => {
@@ -120,6 +167,96 @@ export default function App() {
       mediaRecorderRef.current = null;
     };
   }, [clearRecorderTimer, stopLiveRecognition, stopTracks]);
+
+  /** Start camera preview as soon as video mode is on (avoids black box + second getUserMedia on Record). */
+  useEffect(() => {
+    if (step !== "interview" || !videoInterview) {
+      return undefined;
+    }
+    let cancelled = false;
+    const startPreview = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setError("This browser does not support camera/microphone access.");
+          return;
+        }
+        let stream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: {
+              facingMode: { ideal: "user" },
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+            },
+          });
+          if (cancelled) {
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+          }
+          setNoCameraAudioOnly(false);
+        } catch (e1) {
+          if (cancelled) return;
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (cancelled) {
+              stream.getTracks().forEach((t) => t.stop());
+              return;
+            }
+            setNoCameraAudioOnly(true);
+            setError("");
+          } catch (e2) {
+            if (!cancelled) {
+              const name = e1?.name || "";
+              setNoCameraAudioOnly(false);
+              setError(
+                name === "NotAllowedError" || name === "PermissionDeniedError"
+                  ? "Allow microphone (and camera if you want video) when the browser asks."
+                  : name === "NotReadableError" || name === "TrackStartError"
+                    ? "Camera or mic is in use by another app. Close other apps using them and retry."
+                    : `Could not open camera or mic: ${e1?.message || String(e1)}`
+              );
+            }
+            return;
+          }
+        }
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        const el = videoPreviewRef.current;
+        const hasVideo = stream.getVideoTracks().some((t) => t.readyState === "live");
+        if (el) {
+          if (hasVideo) {
+            el.srcObject = stream;
+            el.muted = true;
+            const play = () => el.play().catch(() => {});
+            el.onloadedmetadata = () => play();
+            play();
+          } else {
+            el.srcObject = null;
+            el.onloadedmetadata = null;
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(`Could not open camera: ${e?.message || String(e)}`);
+        }
+      }
+    };
+    startPreview();
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      const el = videoPreviewRef.current;
+      if (el) {
+        el.onloadedmetadata = null;
+        el.srcObject = null;
+      }
+    };
+  }, [step, videoInterview, videoPreviewKey]);
 
   const fetchResumeQuestion = async () => {
     const r = roleInput.trim();
@@ -160,9 +297,17 @@ export default function App() {
     });
   };
 
+  const flushPendingRecording = () => {
+    setPendingRecording((prev) => {
+      if (prev?.objectUrl) URL.revokeObjectURL(prev.objectUrl);
+      return null;
+    });
+  };
+
   const prepareFromResume = async () => {
     setError("");
     setLoading(true);
+    flushPendingRecording();
     setResult(null);
     setQuestion(null);
     setSessionHistory([]);
@@ -183,6 +328,7 @@ export default function App() {
   const prepareFromWeb = async () => {
     setError("");
     setLoading(true);
+    flushPendingRecording();
     setResult(null);
     setQuestion(null);
     setSessionHistory([]);
@@ -207,6 +353,7 @@ export default function App() {
   const fetchBankQuestion = async () => {
     setError("");
     setLoading(true);
+    flushPendingRecording();
     setResult(null);
     setQuestion(null);
     bankSeenIdsRef.current = new Set();
@@ -233,6 +380,7 @@ export default function App() {
       return;
     }
     setError("");
+    flushPendingRecording();
     setResult(null);
     setLiveTranscript("");
     liveFinalRef.current = "";
@@ -288,12 +436,16 @@ export default function App() {
     }
   };
 
-  const uploadAnswer = async (blob, hitMax) => {
+  const uploadAnswer = async (blob, hitMax, isVideo) => {
     setError("");
     setLoading(true);
     try {
       const fd = new FormData();
-      fd.append("audio", blob, "answer.webm");
+      if (isVideo) {
+        fd.append("video", blob, "answer.webm");
+      } else {
+        fd.append("audio", blob, "answer.webm");
+      }
       fd.append("question_id", question.question_id);
       const data = await apiJson("/api/analyze-answer", {
         method: "POST",
@@ -324,6 +476,9 @@ export default function App() {
           improved_answer_example: data.improved_answer_example,
           perfect_answer: data.perfect_answer,
           note: data._note,
+          recording_id: data.recording_id,
+          recording_token: data.recording_token,
+          recording_media_kind: data.recording_media_kind,
         },
       ]);
       setResult(data);
@@ -335,6 +490,19 @@ export default function App() {
     }
   };
 
+  const discardPendingRecording = () => {
+    flushPendingRecording();
+    if (videoInterviewRef.current) setVideoPreviewKey((k) => k + 1);
+  };
+
+  const handleSavePendingRecording = async () => {
+    if (!pendingRecording || !question) return;
+    const pr = pendingRecording;
+    URL.revokeObjectURL(pr.objectUrl);
+    setPendingRecording(null);
+    await uploadAnswer(pr.blob, pr.hitMax, pr.isVideo);
+  };
+
   const stopRecording = (fromMax = false) => {
     const mr = mediaRecorderRef.current;
     if (!mr || mr.state === "inactive") {
@@ -342,6 +510,7 @@ export default function App() {
       stopLiveRecognition();
       setRecording(false);
       stopTracks();
+      if (videoInterviewRef.current) setVideoPreviewKey((k) => k + 1);
       return;
     }
     stopLiveRecognition();
@@ -350,15 +519,26 @@ export default function App() {
       setRecording(false);
       stopTracks();
       mediaRecorderRef.current = null;
+      const wasVideo = recordingIsVideoRef.current;
       const blob = new Blob(chunksRef.current, {
         type: mr.mimeType || "audio/webm",
       });
       chunksRef.current = [];
       if (blob.size < 256) {
         setError("Recording too short. Try again.");
+        if (videoInterviewRef.current) setVideoPreviewKey((k) => k + 1);
         return;
       }
-      await uploadAnswer(blob, fromMax);
+      setPendingRecording((prev) => {
+        if (prev?.objectUrl) URL.revokeObjectURL(prev.objectUrl);
+        return {
+          blob,
+          objectUrl: URL.createObjectURL(blob),
+          isVideo: wasVideo,
+          hitMax: fromMax,
+        };
+      });
+      if (videoInterviewRef.current) setVideoPreviewKey((k) => k + 1);
     };
     mr.stop();
   };
@@ -369,24 +549,80 @@ export default function App() {
     setLiveTranscript("");
     liveFinalRef.current = "";
     stopLiveRecognition();
+    const uploadAsVideoFile = videoInterview && !noCameraAudioOnly;
+    recordingIsVideoRef.current = uploadAsVideoFile;
     const SR =
       typeof window !== "undefined" &&
       (window.SpeechRecognition || window.webkitSpeechRecognition);
-    setLiveCaptionsAvailable(Boolean(SR));
+    setLiveCaptionsAvailable(Boolean(SR) && (!videoInterview || noCameraAudioOnly));
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      const mr = new MediaRecorder(stream, { mimeType: mime });
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError("This browser does not support recording from microphone/camera.");
+        return;
+      }
+      let stream;
+      if (videoInterview && noCameraAudioOnly) {
+        const existing = streamRef.current;
+        const aTracks = existing?.getAudioTracks?.() ?? [];
+        const hasLiveAudio = aTracks.some((t) => t.readyState === "live");
+        if (hasLiveAudio) {
+          stream = existing;
+        } else {
+          stopTracks();
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          streamRef.current = stream;
+        }
+      } else if (videoInterview) {
+        const existing = streamRef.current;
+        const vTracks = existing?.getVideoTracks?.() ?? [];
+        const hasLiveVideo = vTracks.some((t) => t.readyState === "live");
+        if (hasLiveVideo) {
+          stream = existing;
+        } else {
+          stopTracks();
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: { facingMode: "user" },
+          });
+          streamRef.current = stream;
+          const el = videoPreviewRef.current;
+          if (el) {
+            el.srcObject = stream;
+            el.onloadedmetadata = () => el.play().catch(() => {});
+            await el.play().catch(() => {});
+          }
+        }
+      } else {
+        stopTracks();
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+      }
+
+      let mr;
+      if (videoInterview && !noCameraAudioOnly) {
+        mr = createVideoMediaRecorder(stream);
+      } else {
+        const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm";
+        mr = new MediaRecorder(stream, { mimeType: mime });
+      }
       mediaRecorderRef.current = mr;
       mr.ondataavailable = (ev) => {
         if (ev.data.size) chunksRef.current.push(ev.data);
       };
-      mr.start(250);
+      try {
+        mr.start(200);
+      } catch (recErr) {
+        stopTracks();
+        setError(
+          `Recorder did not start: ${recErr?.message || recErr}. Try another browser or turn off other apps using the camera.`
+        );
+        return;
+      }
       setRecording(true);
-      if (SR) {
+      /* Web Speech + MediaRecorder both using the mic breaks recording on many Windows setups. */
+      if (SR && (!videoInterview || noCameraAudioOnly)) {
         try {
           const rec = new SR();
           rec.continuous = true;
@@ -416,15 +652,19 @@ export default function App() {
         if (e >= MAX_MS) stopRecording(true);
       }, 200);
     } catch (e) {
+      const name = e?.name || "";
       setError(
-        e.name === "NotAllowedError"
-          ? "Microphone permission denied."
-          : "Could not start recording."
+        name === "NotAllowedError" || name === "PermissionDeniedError"
+          ? "Allow microphone (and camera for video) when the browser asks."
+          : name === "NotReadableError" || name === "TrackStartError"
+            ? "Camera or microphone is busy. Close other tabs or apps using them, then try again."
+            : `Could not start recording: ${e?.message || String(e)}`
       );
     }
   };
 
   const resetSessionToSetup = () => {
+    flushPendingRecording();
     setResult(null);
     setQuestion(null);
     setResumeFile(null);
@@ -460,9 +700,12 @@ export default function App() {
       <h1>AI Interview Coach</h1>
       <p className="subtitle">
         Start from resume, web, or the question bank. After each answer you can take
-        another question or finish the interview when you choose. Speech goes to the
-        server (OpenAI Whisper, or Groq Whisper as fallback); feedback uses Gemini,
-        Groq, or Hugging Face.
+        another question or finish the interview when you choose. Answers can be{" "}
+        <strong>audio</strong> or <strong>video</strong> (camera + mic). The coach{" "}
+        <strong>does not analyze your face or body language</strong> — it transcribes
+        speech and grades your answer as text. If the camera is off, your voice still
+        works. Transcription: <code className="inline-code">LOCAL_WHISPER=1</code> or
+        OpenAI / Groq Whisper. Feedback: Gemini, Groq, or Hugging Face.
       </p>
 
       {error ? <div className="error">{error}</div> : null}
@@ -679,6 +922,111 @@ export default function App() {
             </p>
           ) : null}
           <p className="question-text">{question.question_text}</p>
+          {pendingRecording ? (
+            <>
+              <h3 className="review-block-title">Preview your answer</h3>
+              <p className="hint">
+                Play it back, then <strong>Save & get feedback</strong> to store it on the
+                server and run transcription + coaching. <strong>Record again</strong>{" "}
+                discards this clip.
+              </p>
+              {pendingRecording.isVideo ? (
+                <video
+                  className="review-media"
+                  src={pendingRecording.objectUrl}
+                  controls
+                  playsInline
+                />
+              ) : (
+                <audio
+                  className="review-audio"
+                  src={pendingRecording.objectUrl}
+                  controls
+                />
+              )}
+              <div className="row" style={{ marginTop: "1rem" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleSavePendingRecording}
+                  disabled={loading}
+                >
+                  {loading ? "Saving…" : "Save & get feedback"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={discardPendingRecording}
+                  disabled={loading}
+                >
+                  Record again
+                </button>
+              </div>
+            </>
+          ) : null}
+          {!pendingRecording ? (
+            <>
+          <div className="video-mode-row">
+            <label className="video-mode-label">
+              <input
+                type="checkbox"
+                checked={videoInterview}
+                onChange={(e) => setVideoInterview(e.target.checked)}
+                disabled={recording || loading}
+              />
+              <span>
+                Video interview (optional camera + microphone). Grading uses your{" "}
+                <strong>spoken words</strong> only — not facial analysis. If the camera
+                is off, we still record and analyze your <strong>voice</strong>.
+              </span>
+            </label>
+          </div>
+          {videoInterview ? (
+            <>
+              <div
+                className={`video-preview-wrap${noCameraAudioOnly ? " video-preview-fallback" : ""}`}
+              >
+                {noCameraAudioOnly ? (
+                  <div className="video-preview-fallback-msg" role="status">
+                    <strong>Camera off or blocked.</strong>
+                    <span>
+                      {" "}
+                      Microphone is active — answer normally; feedback is based on what
+                      you say, not video.
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <video
+                      ref={videoPreviewRef}
+                      className="video-preview"
+                      autoPlay
+                      playsInline
+                      muted
+                      aria-label="Camera preview"
+                    />
+                    {recording ? (
+                      <div className="rec-overlay" aria-live="polite">
+                        <span className="rec-dot" aria-hidden="true" />
+                        <span>REC — video + voice</span>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+              {noCameraAudioOnly && recording ? (
+                <div className="rec-bar-audio-only" role="status" aria-live="polite">
+                  <span className="rec-dot" aria-hidden="true" />
+                  <span>REC — your voice is recording (no camera)</span>
+                </div>
+              ) : null}
+              <p className="hint video-preview-hint">
+                {noCameraAudioOnly
+                  ? "Turn the camera on in Windows / your browser settings if you want a live preview; recording still works with audio only."
+                  : "You should see yourself above after allowing camera access. If it stays black, check permissions (lock icon in the address bar)."}
+              </p>
+            </>
+          ) : null}
           <div className="row">
             {!recording ? (
               <button
@@ -687,7 +1035,11 @@ export default function App() {
                 onClick={startRecording}
                 disabled={loading}
               >
-                Record answer
+                {videoInterview
+                  ? noCameraAudioOnly
+                    ? "Record answer (voice)"
+                    : "Record video answer"
+                  : "Record answer"}
               </button>
             ) : (
               <button
@@ -705,11 +1057,18 @@ export default function App() {
           </div>
           {recording && liveCaptionsAvailable ? (
             <div className="live-transcript" aria-live="polite">
-              <span className="live-transcript-label">Live caption</span>
+              <span className="live-transcript-label">Live caption (approximate)</span>
               <p className="live-transcript-body">
                 {liveTranscript || "Listening…"}
               </p>
             </div>
+          ) : recording && videoInterview && !noCameraAudioOnly ? (
+            <p className="hint live-caption-hint" role="status">
+              <strong>Voice + video</strong> are recording; your face appears in the
+              preview above. <strong>Live transcript is off</strong> while the camera
+              uses the mic (browser limit). Your <strong>full transcript</strong> shows
+              after you press Stop (Whisper on the server).
+            </p>
           ) : recording && !liveCaptionsAvailable ? (
             <p className="hint live-caption-hint">
               Live captions need a Chromium-based browser (Chrome/Edge). Recording
@@ -724,9 +1083,15 @@ export default function App() {
             {loading
               ? "Transcribing and analyzing…"
               : recording
-                ? "Recording… keep going until you press Stop."
+                ? videoInterview && !noCameraAudioOnly
+                  ? "Recording video and voice — preview above. Transcript after Stop."
+                  : videoInterview && noCameraAudioOnly
+                    ? "Recording your voice (camera off). Live captions on if your browser supports them."
+                    : "Recording… keep going until you press Stop."
                 : "Press Record, then Stop when you are done (up to 10 minutes)."}
           </p>
+            </>
+          ) : null}
         </div>
       )}
 
@@ -743,6 +1108,36 @@ export default function App() {
             <p className="status" style={{ marginBottom: "1rem" }}>
               {result._note}
             </p>
+          ) : null}
+          {result.recording_id && result.recording_token ? (
+            <div className="saved-recording-block">
+              <h3 className="review-block-title">Your saved recording</h3>
+              <p className="hint">
+                File on server + row in the database (metadata). Keep the token private;
+                admins can list clips if <code className="inline-code">ADMIN_API_KEY</code>{" "}
+                is set.
+              </p>
+              {result.recording_media_kind === "video" ? (
+                <video
+                  key={result.recording_id}
+                  className="review-media"
+                  src={apiUrl(
+                    `/api/recording/${result.recording_id}/media?token=${encodeURIComponent(result.recording_token)}`
+                  )}
+                  controls
+                  playsInline
+                />
+              ) : (
+                <audio
+                  key={result.recording_id}
+                  className="review-audio"
+                  src={apiUrl(
+                    `/api/recording/${result.recording_id}/media?token=${encodeURIComponent(result.recording_token)}`
+                  )}
+                  controls
+                />
+              )}
+            </div>
           ) : null}
           <div className="feedback-block">
             <h3>Your answer (transcript)</h3>

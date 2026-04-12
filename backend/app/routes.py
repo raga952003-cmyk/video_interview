@@ -1,10 +1,15 @@
+import hmac
+import os
+import secrets
 import uuid
+from io import BytesIO
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, send_file
 from sqlalchemy import func, select
+from werkzeug.datastructures import FileStorage
 
 from app.limiter_ext import limiter
-from app.models import InterviewSession, Question
+from app.models import InterviewRecording, InterviewSession, Question
 from app.services.judge import analyze_answer
 from app.services.question_from_resume import (
     generate_resume_intro_pack,
@@ -45,6 +50,22 @@ def _llm_status_dict(app) -> dict:
         "GROQ_API_KEY": bool(_cfg_strip(app, "GROQ_API_KEY")),
         "HUGGINGFACE_API_KEY": bool(_cfg_strip(app, "HUGGINGFACE_API_KEY")),
     }
+
+
+def _admin_key_ok() -> bool:
+    exp = _cfg_strip(current_app, "ADMIN_API_KEY")
+    if not exp:
+        return False
+    got = (request.headers.get("X-Admin-Key") or "").strip()
+    if len(got) != len(exp):
+        return False
+    return hmac.compare_digest(got.encode("utf-8"), exp.encode("utf-8"))
+
+
+def _recording_token_ok(got: str, stored: str) -> bool:
+    if not got or not stored or len(got) != len(stored):
+        return False
+    return hmac.compare_digest(got.encode("ascii"), stored.encode("ascii"))
 
 
 def _need_llm_response(app):
@@ -89,6 +110,8 @@ def health():
         "huggingface_configured": bool(
             _cfg_strip(current_app, "HUGGINGFACE_API_KEY")
         ),
+        "local_whisper_enabled": bool(current_app.config.get("LOCAL_WHISPER")),
+        "admin_api_configured": bool(_cfg_strip(current_app, "ADMIN_API_KEY")),
     }
     llm_ready = _llm_configured(current_app)
     body = {
@@ -484,21 +507,32 @@ def get_question():
 @bp.post("/analyze-answer")
 @limiter.limit("30 per hour")
 def analyze_answer_route():
-    if "audio" not in request.files or not request.files["audio"].filename:
-        return jsonify({"error": "Missing audio file"}), 400
+    is_video_field = bool(
+        request.files.get("video") and request.files["video"].filename
+    )
+    media = None
+    if is_video_field:
+        media = request.files["video"]
+    elif request.files.get("audio") and request.files["audio"].filename:
+        media = request.files["audio"]
+    if media is None:
+        return jsonify(
+            {"error": "Missing recording: send multipart field audio or video (WebM)"}
+        ), 400
     qid_raw = request.form.get("question_id") or ""
     try:
         qid = uuid.UUID(qid_raw.strip())
     except ValueError:
         return jsonify({"error": "Invalid question_id"}), 400
 
-    if not _cfg_strip(current_app, "OPENAI_API_KEY") and not _cfg_strip(
+    local_stt = bool(current_app.config.get("LOCAL_WHISPER"))
+    if not local_stt and not _cfg_strip(current_app, "OPENAI_API_KEY") and not _cfg_strip(
         current_app, "GROQ_API_KEY"
     ):
         return jsonify(
             {
-                "error": "Need OPENAI_API_KEY and/or GROQ_API_KEY for speech-to-text (OpenAI Whisper, then Groq Whisper fallback)",
-                "fix": "Render → Environment → add OPENAI_API_KEY and/or GROQ_API_KEY, save, redeploy.",
+                "error": "Speech-to-text: set LOCAL_WHISPER=1 for open-source Whisper on the server, or add OPENAI_API_KEY and/or GROQ_API_KEY",
+                "fix": "For fully local STT: pip install deps, set LOCAL_WHISPER=1, optional LOCAL_WHISPER_MODEL=base|small|…",
             }
         ), 503
     if not _llm_configured(current_app):
@@ -509,13 +543,35 @@ def analyze_answer_route():
     if not q_text or not ideal:
         return jsonify({"error": "Question not found"}), 404
 
-    audio = request.files["audio"]
+    try:
+        media.stream.seek(0)
+        raw_bytes = media.read()
+    except Exception:
+        current_app.logger.exception("read upload failed")
+        return jsonify({"error": "Could not read upload"}), 400
+
+    if len(raw_bytes) < 256:
+        return jsonify({"error": "Recording too short"}), 400
+
+    fname = media.filename or "answer.webm"
+    buf = BytesIO(raw_bytes)
+    buf.name = fname
+    fs = FileStorage(
+        stream=buf,
+        filename=fname,
+        content_type=media.content_type or "application/octet-stream",
+    )
+
     try:
         transcript = transcribe_audio(
-            audio,
+            fs,
             openai_api_key=current_app.config.get("OPENAI_API_KEY"),
             groq_api_key=current_app.config.get("GROQ_API_KEY"),
             groq_whisper_model=current_app.config["GROQ_WHISPER_MODEL"],
+            local_whisper=local_stt,
+            local_whisper_model=current_app.config["LOCAL_WHISPER_MODEL"],
+            local_whisper_device=current_app.config["LOCAL_WHISPER_DEVICE"],
+            local_whisper_compute_type=current_app.config["LOCAL_WHISPER_COMPUTE_TYPE"],
         )
     except Exception as e:
         current_app.logger.exception("speech-to-text failed")
@@ -538,4 +594,129 @@ def analyze_answer_route():
         current_app.logger.exception("judge llm failed")
         return jsonify({"error": "Analysis failed", "detail": str(e)}), 503
 
-    return jsonify({**feedback, "transcript": transcript})
+    rid = uuid.uuid4()
+    media_kind = "video" if is_video_field else "audio"
+    raw_mime = (media.content_type or "").split(";")[0].strip()[:128]
+    mime = raw_mime or ("video/webm" if is_video_field else "audio/webm")
+    rel = f"recordings/{rid}.webm"
+    rec_dir = os.path.join(current_app.instance_path, "recordings")
+    os.makedirs(rec_dir, exist_ok=True)
+    abs_path = os.path.join(rec_dir, f"{rid}.webm")
+    try:
+        with open(abs_path, "wb") as out:
+            out.write(raw_bytes)
+    except OSError as e:
+        current_app.logger.exception("recording file write failed")
+        return jsonify({"error": "Could not store recording", "detail": str(e)}), 500
+
+    token = secrets.token_hex(32)
+    row = InterviewRecording(
+        recording_id=rid,
+        question_id=qid,
+        file_path=rel,
+        media_kind=media_kind,
+        mime_type=mime[:128],
+        byte_size=len(raw_bytes),
+        transcript=transcript,
+        access_token=token,
+    )
+    s.add(row)
+    try:
+        s.commit()
+    except Exception:
+        current_app.logger.exception("recording metadata commit failed")
+        s.rollback()
+        try:
+            os.remove(abs_path)
+        except OSError:
+            pass
+        return jsonify({"error": "Could not save recording metadata"}), 500
+
+    return jsonify(
+        {
+            **feedback,
+            "transcript": transcript,
+            "recording_id": str(rid),
+            "recording_token": token,
+            "recording_media_kind": media_kind,
+        }
+    )
+
+
+@bp.get("/recording/<uuid:recording_id>/media")
+def get_recording_media(recording_id: uuid.UUID):
+    token = (request.args.get("token") or "").strip()
+    s = _session()
+    row = s.get(InterviewRecording, recording_id)
+    if not row or not _recording_token_ok(token, row.access_token):
+        return jsonify({"error": "Not found"}), 404
+    abs_path = os.path.normpath(
+        os.path.join(current_app.instance_path, row.file_path.replace("/", os.sep))
+    )
+    rec_root = os.path.normpath(os.path.join(current_app.instance_path, "recordings"))
+    if not abs_path.startswith(rec_root + os.sep) and abs_path != rec_root:
+        return jsonify({"error": "Not found"}), 404
+    if not os.path.isfile(abs_path):
+        return jsonify({"error": "File missing"}), 404
+    return send_file(
+        abs_path,
+        mimetype=row.mime_type or "application/octet-stream",
+        as_attachment=False,
+        max_age=3600,
+    )
+
+
+@bp.get("/admin/recordings")
+@limiter.limit("60 per minute")
+def admin_list_recordings():
+    if not _cfg_strip(current_app, "ADMIN_API_KEY"):
+        return jsonify({"error": "Not found"}), 404
+    if not _admin_key_ok():
+        return jsonify({"error": "Forbidden"}), 403
+    s = _session()
+    rows = s.execute(
+        select(InterviewRecording).order_by(InterviewRecording.created_at.desc()).limit(200)
+    ).scalars().all()
+    return jsonify(
+        {
+            "recordings": [
+                {
+                    "recording_id": str(r.recording_id),
+                    "question_id": str(r.question_id),
+                    "media_kind": r.media_kind,
+                    "mime_type": r.mime_type,
+                    "byte_size": r.byte_size,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "transcript_preview": (r.transcript or "")[:240],
+                }
+                for r in rows
+            ]
+        }
+    )
+
+
+@bp.get("/admin/recording/<uuid:recording_id>/media")
+@limiter.limit("120 per minute")
+def admin_get_recording_media(recording_id: uuid.UUID):
+    if not _cfg_strip(current_app, "ADMIN_API_KEY"):
+        return jsonify({"error": "Not found"}), 404
+    if not _admin_key_ok():
+        return jsonify({"error": "Forbidden"}), 403
+    s = _session()
+    row = s.get(InterviewRecording, recording_id)
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+    abs_path = os.path.normpath(
+        os.path.join(current_app.instance_path, row.file_path.replace("/", os.sep))
+    )
+    rec_root = os.path.normpath(os.path.join(current_app.instance_path, "recordings"))
+    if not abs_path.startswith(rec_root + os.sep):
+        return jsonify({"error": "Not found"}), 404
+    if not os.path.isfile(abs_path):
+        return jsonify({"error": "File missing"}), 404
+    return send_file(
+        abs_path,
+        mimetype=row.mime_type or "application/octet-stream",
+        as_attachment=False,
+        max_age=0,
+    )

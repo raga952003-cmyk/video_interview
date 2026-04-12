@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, Uuid, func
+from sqlalchemy import DateTime, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -48,6 +48,32 @@ class InterviewSession(Base):
     )
     resume_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     question_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
+
+
+class InterviewRecording(Base):
+    """
+    Metadata for a saved answer clip. File bytes are stored under instance_path;
+    use PostgreSQL or SQLite for this table — not BLOBs inside the DB for large videos.
+    """
+
+    __tablename__ = "interview_recordings"
+
+    recording_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    question_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    file_path: Mapped[str] = mapped_column(String(512))
+    media_kind: Mapped[str] = mapped_column(String(16))
+    mime_type: Mapped[str] = mapped_column(String(128))
+    byte_size: Mapped[int] = mapped_column(Integer, default=0)
+    transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token: Mapped[str] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

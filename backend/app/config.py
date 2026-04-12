@@ -7,7 +7,8 @@ _default_sqlite_uri = "sqlite:///" + _default_sqlite_path.replace("\\", "/")
 
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-change-me")
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", _default_sqlite_uri)
+    _db_url = (os.environ.get("DATABASE_URL") or "").strip()
+    SQLALCHEMY_DATABASE_URI = _db_url if _db_url else _default_sqlite_uri
     if SQLALCHEMY_DATABASE_URI.startswith("postgres://"):
         SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace(
             "postgres://", "postgresql://", 1
@@ -38,6 +39,19 @@ class Config:
     MISTRAL_API_KEY = (os.environ.get("MISTRAL_API_KEY") or "").strip()
     # Absolute path to `npm run build` output (index.html + assets/). When set, Flask serves the SPA.
     FRONTEND_DIST = (os.environ.get("FRONTEND_DIST") or "").strip()
+    # Open-source Whisper on the server (faster-whisper). Set LOCAL_WHISPER=1 to enable.
+    LOCAL_WHISPER = (os.environ.get("LOCAL_WHISPER") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    LOCAL_WHISPER_MODEL = (os.environ.get("LOCAL_WHISPER_MODEL") or "base").strip()
+    LOCAL_WHISPER_DEVICE = (os.environ.get("LOCAL_WHISPER_DEVICE") or "cpu").strip()
+    LOCAL_WHISPER_COMPUTE_TYPE = (
+        os.environ.get("LOCAL_WHISPER_COMPUTE_TYPE") or "int8"
+    ).strip()
+    # Optional: list/download all recordings (header X-Admin-Key)
+    ADMIN_API_KEY = (os.environ.get("ADMIN_API_KEY") or "").strip()
 
 
 def sync_env_into_app(app) -> None:
@@ -47,7 +61,7 @@ def sync_env_into_app(app) -> None:
     Needed because the Config class body runs at import time; Flask's debug reloader
     can import the app package before run.py's load_dotenv() has run in that process.
     """
-    uri = os.environ.get("DATABASE_URL", _default_sqlite_uri)
+    uri = (os.environ.get("DATABASE_URL") or "").strip() or _default_sqlite_uri
     if uri.startswith("postgres://"):
         uri = uri.replace("postgres://", "postgresql://", 1)
     app.config["SQLALCHEMY_DATABASE_URI"] = uri
@@ -85,3 +99,18 @@ def sync_env_into_app(app) -> None:
     ).strip().rstrip("/")
     app.config["MISTRAL_API_KEY"] = (os.environ.get("MISTRAL_API_KEY") or "").strip()
     app.config["FRONTEND_DIST"] = (os.environ.get("FRONTEND_DIST") or "").strip()
+    app.config["LOCAL_WHISPER"] = (os.environ.get("LOCAL_WHISPER") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    app.config["LOCAL_WHISPER_MODEL"] = (
+        os.environ.get("LOCAL_WHISPER_MODEL") or "base"
+    ).strip()
+    app.config["LOCAL_WHISPER_DEVICE"] = (
+        os.environ.get("LOCAL_WHISPER_DEVICE") or "cpu"
+    ).strip()
+    app.config["LOCAL_WHISPER_COMPUTE_TYPE"] = (
+        os.environ.get("LOCAL_WHISPER_COMPUTE_TYPE") or "int8"
+    ).strip()
+    app.config["ADMIN_API_KEY"] = (os.environ.get("ADMIN_API_KEY") or "").strip()

@@ -78,6 +78,28 @@ All lines should show `OK`. If `/api/health` JSON lacks `database` / `openai_con
 
 See `.env.example`. Never commit real API keys.
 
+### Video interview + open-source Whisper
+
+The UI can record **camera + microphone** (checkbox on the interview screen). Uploads use the `video` multipart field; audio-only still uses `audio`.
+
+Set **`LOCAL_WHISPER=1`** to transcribe with **[faster-whisper](https://github.com/SYSTRAN/faster-whisper)** (open-weight Whisper, runs on your CPU or GPU). Optional: `LOCAL_WHISPER_MODEL` (`tiny`, `base`, `small`, `medium`, `large-v3`, …), `LOCAL_WHISPER_DEVICE` (`cpu` / `cuda`), `LOCAL_WHISPER_COMPUTE_TYPE` (e.g. `int8` on CPU, `float16` on GPU). If local STT fails, the server still falls back to OpenAI and Groq when those keys are set.
+
+**Docker:** The image installs `ffmpeg` so WebM/video decoding works. Expect a larger first-request latency while the model loads.
+
+Grading still uses an LLM (Gemini / Groq / Hugging Face); for a fully offline stack you would add a local LLM separately (e.g. Ollama), which this repo does not wire in by default.
+
+### Saving answers (preview → Save, disk + database)
+
+After **Stop**, you **preview** the clip, then **Save & get feedback**. The server then:
+
+- Saves the WebM under `backend/instance/recordings/` (or the mounted `instance` volume in Docker).
+- Inserts metadata into the **`interview_recordings`** table.
+
+Use **SQLite** locally (default) or **PostgreSQL** in production (`DATABASE_URL`). **Do not** store large video files as BLOBs in the DB — keep **rows for metadata + transcript**, **files on disk** (or point to **S3 / Supabase Storage** in a future column).
+
+- **Candidate replay:** response includes `recording_id` and `recording_token`; the UI plays `GET /api/recording/<id>/media?token=...`.
+- **Admin:** set **`ADMIN_API_KEY`**, then `GET /api/admin/recordings` and `GET /api/admin/recording/<id>/media` with header `X-Admin-Key`.
+
 - `GEMINI_MODEL` — default `gemini-1.5-flash` (override if your account uses another id).
 - `CORS_ORIGINS` — comma-separated origins for production SPA hosting.
 - `MAX_UPLOAD_MB` — max audio upload size (default 25).

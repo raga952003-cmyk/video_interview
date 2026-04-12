@@ -13,3 +13,5 @@ qdrant-client>=1.12.0
 groq>=0.11.0
 requests>=2.31.0
 beautifulsoup4>=4.12.0
+# Optional: local open-source Whisper (no API key). First run downloads model weights.
+faster-whisper>=1.0.0
