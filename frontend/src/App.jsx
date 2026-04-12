@@ -69,8 +69,6 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [result, setResult] = useState(null);
-  const [liveTranscript, setLiveTranscript] = useState("");
-  const [liveCaptionsAvailable, setLiveCaptionsAvailable] = useState(false);
   /** Tracks how the current session started so we can load another question. */
   const [sessionSource, setSessionSource] = useState(null);
   const [questionRound, setQuestionRound] = useState(0);
@@ -92,15 +90,11 @@ export default function App() {
   const [videoPreviewKey, setVideoPreviewKey] = useState(0);
   /** After Stop: preview locally; "Next" uploads and stores on server. */
   const [pendingRecording, setPendingRecording] = useState(null);
-  /**
-   * Video mode on but camera unavailable — we still record & analyze **voice** (same as audio mode).
-   * The server never scores your face; it only transcribes speech.
-   */
-  const [noCameraAudioOnly, setNoCameraAudioOnly] = useState(false);
+  /** True only when preview has a live video track — interview requires camera on to record. */
+  const [cameraReady, setCameraReady] = useState(false);
   const timerRef = useRef(null);
   const startRef = useRef(0);
   const recognitionRef = useRef(null);
-  const liveFinalRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -185,31 +179,33 @@ export default function App() {
             stream.getTracks().forEach((t) => t.stop());
             return;
           }
-          setNoCameraAudioOnly(false);
-        } catch (e1) {
-          if (cancelled) return;
-          try {
-            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            if (cancelled) {
-              stream.getTracks().forEach((t) => t.stop());
-              return;
-            }
-            setNoCameraAudioOnly(true);
-            setError("");
-          } catch (e2) {
+          const hasVideo = stream
+            .getVideoTracks()
+            .some((t) => t.readyState === "live");
+          if (!hasVideo) {
+            stream.getTracks().forEach((t) => t.stop());
             if (!cancelled) {
-              const name = e1?.name || "";
-              setNoCameraAudioOnly(false);
+              setCameraReady(false);
               setError(
-                name === "NotAllowedError" || name === "PermissionDeniedError"
-                  ? "Allow microphone (and camera if you want video) when the browser asks."
-                  : name === "NotReadableError" || name === "TrackStartError"
-                    ? "Camera or mic is in use by another app. Close other apps using them and retry."
-                    : `Could not open camera or mic: ${e1?.message || String(e1)}`
+                "A working camera is required. Your device did not provide a video track."
               );
             }
             return;
           }
+          setCameraReady(true);
+          setError("");
+        } catch (e1) {
+          if (cancelled) return;
+          setCameraReady(false);
+          const name = e1?.name || "";
+          setError(
+            name === "NotAllowedError" || name === "PermissionDeniedError"
+              ? "Camera and microphone are required. Allow both when your browser asks — you cannot continue without the camera on."
+              : name === "NotReadableError" || name === "TrackStartError"
+                ? "Camera or microphone is in use. Close other apps using them, then use Retry camera."
+                : `Could not open camera: ${e1?.message || String(e1)}`
+          );
+          return;
         }
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -217,18 +213,12 @@ export default function App() {
         }
         streamRef.current = stream;
         const el = videoPreviewRef.current;
-        const hasVideo = stream.getVideoTracks().some((t) => t.readyState === "live");
         if (el) {
-          if (hasVideo) {
-            el.srcObject = stream;
-            el.muted = true;
-            const play = () => el.play().catch(() => {});
-            el.onloadedmetadata = () => play();
-            play();
-          } else {
-            el.srcObject = null;
-            el.onloadedmetadata = null;
-          }
+          el.srcObject = stream;
+          el.muted = true;
+          const play = () => el.play().catch(() => {});
+          el.onloadedmetadata = () => play();
+          play();
         }
       } catch (e) {
         if (!cancelled) {
@@ -239,6 +229,7 @@ export default function App() {
     startPreview();
     return () => {
       cancelled = true;
+      setCameraReady(false);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       const el = videoPreviewRef.current;
@@ -373,8 +364,6 @@ export default function App() {
     setError("");
     flushPendingRecording();
     setResult(null);
-    setLiveTranscript("");
-    liveFinalRef.current = "";
     setLoading(true);
     try {
       let q;
@@ -537,63 +526,51 @@ export default function App() {
   const startRecording = async () => {
     setError("");
     chunksRef.current = [];
-    setLiveTranscript("");
-    liveFinalRef.current = "";
     stopLiveRecognition();
-    const uploadAsVideoFile = !noCameraAudioOnly;
-    recordingIsVideoRef.current = uploadAsVideoFile;
-    const SR =
-      typeof window !== "undefined" &&
-      (window.SpeechRecognition || window.webkitSpeechRecognition);
-    setLiveCaptionsAvailable(Boolean(SR) && noCameraAudioOnly);
+    recordingIsVideoRef.current = true;
     try {
+      if (!cameraReady) {
+        setError(
+          "Turn on your camera and allow access before recording. Use Retry camera if needed."
+        );
+        return;
+      }
       if (!navigator.mediaDevices?.getUserMedia) {
         setError("This browser does not support recording from microphone/camera.");
         return;
       }
       let stream;
-      if (noCameraAudioOnly) {
-        const existing = streamRef.current;
-        const aTracks = existing?.getAudioTracks?.() ?? [];
-        const hasLiveAudio = aTracks.some((t) => t.readyState === "live");
-        if (hasLiveAudio) {
-          stream = existing;
-        } else {
-          stopTracks();
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          streamRef.current = stream;
-        }
+      const existing = streamRef.current;
+      const vTracks = existing?.getVideoTracks?.() ?? [];
+      const hasLiveVideo = vTracks.some((t) => t.readyState === "live");
+      if (hasLiveVideo) {
+        stream = existing;
       } else {
-        const existing = streamRef.current;
-        const vTracks = existing?.getVideoTracks?.() ?? [];
-        const hasLiveVideo = vTracks.some((t) => t.readyState === "live");
-        if (hasLiveVideo) {
-          stream = existing;
-        } else {
-          stopTracks();
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: { facingMode: "user" },
-          });
-          streamRef.current = stream;
-          const el = videoPreviewRef.current;
-          if (el) {
-            el.srcObject = stream;
-            el.onloadedmetadata = () => el.play().catch(() => {});
-            await el.play().catch(() => {});
-          }
+        stopTracks();
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: { facingMode: "user" },
+        });
+        const ok = stream.getVideoTracks().some((t) => t.readyState === "live");
+        if (!ok) {
+          stream.getTracks().forEach((t) => t.stop());
+          setCameraReady(false);
+          setError(
+            "Camera is required. Allow camera access, then use Retry camera below."
+          );
+          return;
         }
+        streamRef.current = stream;
+        const el = videoPreviewRef.current;
+        if (el) {
+          el.srcObject = stream;
+          el.onloadedmetadata = () => el.play().catch(() => {});
+          await el.play().catch(() => {});
+        }
+        setCameraReady(true);
       }
 
-      let mr;
-      if (!noCameraAudioOnly) {
-        mr = createVideoMediaRecorder(stream);
-      } else {
-        const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm";
-        mr = new MediaRecorder(stream, { mimeType: mime });
-      }
+      const mr = createVideoMediaRecorder(stream);
       mediaRecorderRef.current = mr;
       mr.ondataavailable = (ev) => {
         if (ev.data.size) chunksRef.current.push(ev.data);
@@ -608,29 +585,7 @@ export default function App() {
         return;
       }
       setRecording(true);
-      /* Web Speech + MediaRecorder both using the mic breaks recording on many Windows setups. */
-      if (SR && noCameraAudioOnly) {
-        try {
-          const rec = new SR();
-          rec.continuous = true;
-          rec.interimResults = true;
-          rec.lang = (navigator.language || "en-US").replace(/_/g, "-");
-          rec.onresult = (event) => {
-            let interim = "";
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-              const tr = event.results[i][0].transcript;
-              if (event.results[i].isFinal) liveFinalRef.current += tr;
-              else interim += tr;
-            }
-            setLiveTranscript((liveFinalRef.current + interim).trim());
-          };
-          rec.onerror = () => {};
-          rec.start();
-          recognitionRef.current = rec;
-        } catch {
-          setLiveCaptionsAvailable(false);
-        }
-      }
+      /* Live Web Speech captions off while recording video+mic (browser / stability). */
       setElapsedMs(0);
       startRef.current = Date.now();
       timerRef.current = setInterval(() => {
@@ -642,7 +597,7 @@ export default function App() {
       const name = e?.name || "";
       setError(
         name === "NotAllowedError" || name === "PermissionDeniedError"
-          ? "Allow microphone (and camera for video) when the browser asks."
+          ? "Allow camera and microphone when the browser asks."
           : name === "NotReadableError" || name === "TrackStartError"
             ? "Camera or microphone is busy. Close other tabs or apps using them, then try again."
             : `Could not start recording: ${e?.message || String(e)}`
@@ -656,8 +611,6 @@ export default function App() {
     setQuestion(null);
     setResumeFile(null);
     setWebUrl("");
-    setLiveTranscript("");
-    liveFinalRef.current = "";
     setSessionSource(null);
     setQuestionRound(0);
     setSessionRunId(null);
@@ -687,11 +640,11 @@ export default function App() {
       <h1>AI Interview Coach</h1>
       <p className="subtitle">
         Start from resume, web, or the question bank. After each answer you can take
-        another question or finish the interview when you choose. Answers can be{" "}
-        <strong>audio</strong> or <strong>video</strong> (camera + mic). The coach{" "}
-        <strong>does not analyze your face or body language</strong> — it transcribes
-        speech and grades your answer as text. If the camera is off, your voice still
-        works. Transcription: <code className="inline-code">LOCAL_WHISPER=1</code> or
+        another question or finish the interview when you choose. The interview step{" "}
+        <strong>requires your camera and microphone on</strong> — you cannot record
+        without video. The coach <strong>does not analyze your face or body language</strong>{" "}
+        — it transcribes speech and grades your answer as text. Transcription:{" "}
+        <code className="inline-code">LOCAL_WHISPER=1</code> or
         OpenAI / Groq Whisper. Feedback: Gemini, Groq, or Hugging Face.
       </p>
 
@@ -954,20 +907,21 @@ export default function App() {
           {!pendingRecording ? (
             <>
           <p className="hint video-mode-intro">
-            Camera and microphone open here for your answer. Grading uses your{" "}
-            <strong>spoken words</strong> only — not facial analysis. If the camera is
-            blocked, we still record your <strong>voice</strong>.
+            <strong>Camera required</strong> — allow camera and microphone to attend this
+            step. Grading uses your <strong>spoken words</strong> only, not facial
+            analysis.
           </p>
               <div
-                className={`video-preview-wrap${noCameraAudioOnly ? " video-preview-fallback" : ""}`}
+                className={`video-preview-wrap${!cameraReady ? " video-preview-fallback" : ""}`}
               >
-                {noCameraAudioOnly ? (
+                {!cameraReady ? (
                   <div className="video-preview-fallback-msg" role="status">
-                    <strong>Camera off or blocked.</strong>
+                    <strong>Camera not active.</strong>
                     <span>
                       {" "}
-                      Microphone is active — answer normally; feedback is based on what
-                      you say, not video.
+                      Allow camera and mic in your browser, fix device settings, then{" "}
+                      <strong>Retry camera</strong>. You cannot record until the preview
+                      shows your video.
                     </span>
                   </div>
                 ) : (
@@ -989,16 +943,25 @@ export default function App() {
                   </>
                 )}
               </div>
-              {noCameraAudioOnly && recording ? (
-                <div className="rec-bar-audio-only" role="status" aria-live="polite">
-                  <span className="rec-dot" aria-hidden="true" />
-                  <span>REC — your voice is recording (no camera)</span>
+              {!cameraReady && !recording ? (
+                <div className="row" style={{ marginBottom: "0.75rem" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setError("");
+                      setVideoPreviewKey((k) => k + 1);
+                    }}
+                    disabled={loading}
+                  >
+                    Retry camera
+                  </button>
                 </div>
               ) : null}
               <p className="hint video-preview-hint">
-                {noCameraAudioOnly
-                  ? "Turn the camera on in Windows / your browser settings if you want a live preview; recording still works with audio only."
-                  : "You should see yourself above after allowing camera access. If it stays black, check permissions (lock icon in the address bar)."}
+                {!cameraReady
+                  ? "Use Retry camera after changing permissions or plugging in a webcam."
+                  : "You should see yourself above. If it stays black, check permissions (lock icon in the address bar)."}
               </p>
           <div className="row">
             {!recording ? (
@@ -1006,11 +969,9 @@ export default function App() {
                 type="button"
                 className="btn btn-primary"
                 onClick={startRecording}
-                disabled={loading}
+                disabled={loading || !cameraReady}
               >
-                {noCameraAudioOnly
-                  ? "Record answer (voice)"
-                  : "Record video answer"}
+                Record video answer
               </button>
             ) : (
               <button
@@ -1026,24 +987,12 @@ export default function App() {
               <span className="timer">{formatTime(elapsedMs)} / 10:00</span>
             )}
           </div>
-          {recording && liveCaptionsAvailable ? (
-            <div className="live-transcript" aria-live="polite">
-              <span className="live-transcript-label">Live caption (approximate)</span>
-              <p className="live-transcript-body">
-                {liveTranscript || "Listening…"}
-              </p>
-            </div>
-          ) : recording && !noCameraAudioOnly ? (
+          {recording ? (
             <p className="hint live-caption-hint" role="status">
               <strong>Voice + video</strong> are recording; your face appears in the
               preview above. <strong>Live transcript is off</strong> while the camera
               uses the mic (browser limit). Your <strong>full transcript</strong> shows
               after you press Stop (Whisper on the server).
-            </p>
-          ) : recording && !liveCaptionsAvailable ? (
-            <p className="hint live-caption-hint">
-              Live captions need a Chromium-based browser (Chrome/Edge). Recording
-              still works; your full answer is transcribed after you press Stop.
             </p>
           ) : null}
           <p
@@ -1054,10 +1003,10 @@ export default function App() {
             {loading
               ? "Transcribing and analyzing…"
               : recording
-                ? !noCameraAudioOnly
-                  ? "Recording video and voice — preview above. Transcript after Stop."
-                  : "Recording your voice (camera off). Live captions on if your browser supports them."
-                : "Press Record, then Stop when you are done (up to 10 minutes)."}
+                ? "Recording video and voice — preview above. Transcript after Stop."
+                : cameraReady
+                  ? "Press Record, then Stop when you are done (up to 10 minutes)."
+                  : "Allow camera and microphone to enable recording."}
           </p>
             </>
           ) : null}
