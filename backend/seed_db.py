@@ -392,6 +392,185 @@ ROWS: tuple[Row, ...] = (
         ),
         source_url="https://staragile.com/blog/automation-testing-interview-questions-answers",
     ),
+    # --- Additional bank: Java + Maven + TestNG + Cucumber + Rest Assured + Selenium (curated; topic-aligned) ---
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000001f"),
+        role_category="Java Automation Testing",
+        question_text="What is pom.xml in Maven and what are the main lifecycle phases?",
+        scraped_ideal_answer=(
+            "`pom.xml` is the Project Object Model: project coordinates, dependencies, plugins, "
+            "and build configuration. Default lifecycle phases include validate, compile, test, "
+            "package, verify, install, and deploy—`mvn test` runs unit tests after compiling test "
+            "sources; `mvn clean install` cleans, builds, runs tests, and installs the artifact "
+            "to the local repository."
+        ),
+        source_url="https://www.javatpoint.com/maven-interview-questions",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000020"),
+        role_category="Java Automation Testing",
+        question_text="What is Maven dependency scope compile vs test vs provided?",
+        scraped_ideal_answer=(
+            "`compile` (default) is on the classpath for main and test. `test` is only for test "
+            "compilation and execution (e.g. TestNG, JUnit). `provided` is expected at runtime "
+            "from the container (e.g. servlet API) and is not packaged into the fat JAR—important "
+            "when choosing what ships to CI agents."
+        ),
+        source_url="https://www.javatpoint.com/maven-interview-questions",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000021"),
+        role_category="Java Automation Testing",
+        question_text="In Cucumber, what is a feature file and how does it map to Java?",
+        scraped_ideal_answer=(
+            "A `.feature` file holds Gherkin scenarios (Feature, Scenario, Given/When/Then). "
+            "Cucumber matches steps to glue code: Java methods annotated with regex or Cucumber "
+            "expressions, often in a `steps` package, with shared state injected via PicoContainer "
+            "or Spring if used."
+        ),
+        source_url="https://www.geeksforgeeks.org/cucumber-interview-questions/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000022"),
+        role_category="Java Automation Testing",
+        question_text="What are Cucumber tags and hooks (@Before, @After)?",
+        scraped_ideal_answer=(
+            "Tags (e.g. `@smoke`, `@regression`) label scenarios or features so you can filter "
+            "runs from the runner or CI. Hooks run setup/teardown around scenarios or steps—"
+            "`@Before`/`@After` in Java open/close browser or reset test data so scenarios stay "
+            "isolated."
+        ),
+        source_url="https://www.geeksforgeeks.org/cucumber-interview-questions/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000023"),
+        role_category="Java Automation Testing",
+        question_text="What TestNG annotations would you use for setup, test, and teardown?",
+        scraped_ideal_answer=(
+            "Common pattern: `@BeforeSuite`/`@AfterSuite` for global resources, `@BeforeClass`/"
+            "`@AfterClass` once per class, `@BeforeMethod`/`@AfterMethod` around each `@Test`, "
+            "plus `@Test` with attributes like `priority`, `groups`, `dependsOnMethods`, and "
+            "`dataProvider` for data-driven runs."
+        ),
+        source_url="https://www.tutorialspoint.com/testng/testng_interview_questions.htm",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000024"),
+        role_category="Java Automation Testing",
+        question_text="How does TestNG @DataProvider work for data-driven Selenium tests?",
+        scraped_ideal_answer=(
+            "A `@DataProvider` method returns a 2D `Object[][]` (or `Iterator`) of argument sets. "
+            "`@Test(dataProvider = \"name\")` runs the test once per row—ideal for login datasets "
+            "from Excel/CSV. For parallel data-driven runs, combine with suite parallel settings "
+            "and thread-safe drivers."
+        ),
+        source_url="https://www.tutorialspoint.com/testng/testng_interview_questions.htm",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000025"),
+        role_category="Java Automation Testing",
+        question_text="How do you write a basic Rest Assured test in Java for a JSON API?",
+        scraped_ideal_answer=(
+            "Use fluent API: `given()` for headers/query/body, `when()` for HTTP verb and path, "
+            "`then()` for assertions—e.g. `given().contentType(JSON).when().get(\"/users/1\")`."
+            "`then().statusCode(200).body(\"name\", equalTo(\"...\"))` with Hamcrest or JsonPath. "
+            "Reuse request specs and enable logging for failures in CI."
+        ),
+        source_url="https://github.com/rest-assured/rest-assured/wiki/Usage",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000026"),
+        role_category="Java Automation Testing",
+        question_text="What is Selenium Grid and how do Hub and Nodes relate?",
+        scraped_ideal_answer=(
+            "Grid distributes tests across browsers/OS: the Hub routes sessions; Nodes register "
+            "capabilities (Chrome, Firefox, version). Tests point `RemoteWebDriver` at the Hub URL "
+            "with desired capabilities so CI can scale parallel UI runs without one machine "
+            "running every browser."
+        ),
+        source_url="https://www.softwaretestingmaterial.com/selenium-interview-questions/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000027"),
+        role_category="Java Automation Testing",
+        question_text="What is JavascriptExecutor in Selenium and when would you use it?",
+        scraped_ideal_answer=(
+            "`((JavascriptExecutor) driver).executeScript(...)` runs JS in the page context—"
+            "use sparingly for scrolling, clicking hidden elements, or setting values when "
+            "no stable WebDriver API exists. Prefer normal interactions first; document JS "
+            "hacks because they can break across browsers and frameworks."
+        ),
+        source_url="https://www.edureka.co/blog/interview-questions/selenium-interview-questions/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000028"),
+        role_category="Java Automation Testing",
+        question_text="What is visual regression testing and how does it differ from functional UI checks?",
+        scraped_ideal_answer=(
+            "Functional checks assert behavior (text, navigation). Visual regression compares "
+            "screenshots (full page or components) to baselines to catch unintended layout/CSS "
+            "changes—tools like Applitools add AI-assisted diffing and run at scale. Use it for "
+            "stable UIs where pixel-level drift matters alongside traditional assertions."
+        ),
+        source_url="https://testautomationuniversity.applitools.com/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000029"),
+        role_category="Java Automation Testing",
+        question_text="Why use a BaseTest (or similar) class in a Selenium Java framework?",
+        scraped_ideal_answer=(
+            "Centralize driver creation, implicit/explicit wait defaults, base URL, window size, "
+            "and teardown (`quit`) in `@BeforeMethod`/`@AfterMethod` so tests stay DRY. Subclasses "
+            "focus on scenarios; you can swap local vs Grid URL from config or environment variables."
+        ),
+        source_url="https://github.com/shadabansari/Selenium-Java-Framework",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000002a"),
+        role_category="Java Automation Testing",
+        question_text="Explain Java encapsulation and why private fields with getters matter in page objects.",
+        scraped_ideal_answer=(
+            "Encapsulation hides internal state behind methods. In page objects, keep locators "
+            "and low-level WebElement fields private and expose intent-based methods—callers "
+            "cannot break invariants or depend on raw DOM details, improving maintainability."
+        ),
+        source_url="https://www.guru99.com/java-interview-questions-answers.html",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000002b"),
+        role_category="Java Automation Testing",
+        question_text="When would you use StringBuilder instead of String concatenation in Java test code?",
+        scraped_ideal_answer=(
+            "Strings are immutable—repeated `+` in loops creates many intermediate objects. "
+            "`StringBuilder` mutates a buffer and is better for building log messages, dynamic "
+            "XPath snippets, or large payloads in performance-sensitive test utilities."
+        ),
+        source_url="https://www.geeksforgeeks.org/top-50-java-coding-problems-for-interviews/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000002c"),
+        role_category="Java Automation Testing",
+        question_text="What Java collections would you use for unique test IDs vs ordered test steps?",
+        scraped_ideal_answer=(
+            "`Set` (e.g. `HashSet`) enforces uniqueness and fast membership—good for deduping "
+            "IDs or URLs. `List` preserves order for sequential steps. `Map` (e.g. `HashMap`) "
+            "maps keys to values for environment config, row data, or API response fields in "
+            "assertions."
+        ),
+        source_url="https://github.com/itv-github/Java-Interview-Questions",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000002d"),
+        role_category="Java Automation Testing",
+        question_text="What is method overloading vs overriding in Java (common in interview coding)?",
+        scraped_ideal_answer=(
+            "Overloading: same method name, different parameter lists in one class—resolved at "
+            "compile time. Overriding: subclass replaces a superclass instance method with the "
+            "same signature—resolved at runtime (dynamic dispatch). Know this for reading "
+            "framework APIs and writing clean test utilities."
+        ),
+        source_url="https://www.hackerrank.com/domains/java",
+    ),
 )
 
 
