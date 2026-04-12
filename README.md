@@ -146,10 +146,10 @@ Nobody can give you the final URL until **you** deploy (the hostname is chosen o
 
 ### A) [Render](https://render.com/) (simplest UI)
 
-1. Push this repo to GitHub (e.g. [your INTERVIEW repo](https://github.com/raga952003-cmyk/INTERVIEW)).
-2. In Render: **New → Blueprint** → connect the repo → it reads [`render.yaml`](render.yaml).
-3. In the service **Environment** tab, add at least: `OPENAI_API_KEY`, `GOOGLE_API_KEY` (and/or `GROQ_API_KEY`, `HUGGINGFACE_API_KEY`). Optionally `SECRET_KEY`, `CORS_ORIGINS` (your Render URL once known).
-4. After deploy, Render shows your link, typically **`https://<service-name>.onrender.com`** — use that in the browser on any machine.
+1. Push this repo to GitHub (e.g. [INTERVIEW](https://github.com/raga952003-cmyk/INTERVIEW)).
+2. In Render: **New → Blueprint** → connect the repo → it reads [`render.yaml`](render.yaml). `SECRET_KEY` is auto-generated; API keys are declared but empty until you set them.
+3. After the first deploy attempt, open the web service → **Environment** and set at least **`OPENAI_API_KEY`** and **`GOOGLE_API_KEY`** (and/or **`GROQ_API_KEY`**, **`HUGGINGFACE_API_KEY`**). Redeploy if the first build ran without keys.
+4. Your URL is typically **`https://ai-interview-coach.onrender.com`** (or the name you chose) — open it in the browser. Same-origin UI + `/api` needs no `VITE_API_BASE`; optional **`CORS_ORIGINS`** only if you split hosts later.
 
 **Caveat:** Free web services may **stop after idle** (cold start ~1 min) and can enforce **short HTTP timeouts** (~100s), which may break **very long** record → Whisper → judge flows. For heavy use, prefer Fly.io or a VPS.
 
