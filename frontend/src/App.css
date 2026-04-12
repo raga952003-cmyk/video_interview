@@ -333,6 +333,148 @@ select {
   margin-top: 1rem;
 }
 
+.session-progress {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.summary-card .summary-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+}
+
+.summary-meta {
+  margin: 0 0 1.25rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.history-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.history-item {
+  margin-bottom: 2rem;
+  padding-bottom: 1.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-item:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.history-round {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--accent, #2dd4bf);
+}
+
+.history-source,
+.history-bank-role,
+.history-kind {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 0.2rem 0.45rem;
+  background: var(--bg);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.history-question {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.history-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.history-h {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.history-h:first-of-type {
+  margin-top: 0;
+}
+
+.history-transcript,
+.history-p {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.history-suggestions {
+  white-space: pre-wrap;
+}
+
+.scores-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.score-pill {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 3.25rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.score-pill span {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.score-pill small {
+  font-size: 0.65rem;
+  text-transform: capitalize;
+  color: var(--muted);
+}
+
+.history-improved {
+  margin-top: 0.35rem;
+}
+
+.history-perfect {
+  margin-top: 0.35rem;
+}
+
 @media (max-width: 520px) {
   .scores {
     grid-template-columns: 1fr;

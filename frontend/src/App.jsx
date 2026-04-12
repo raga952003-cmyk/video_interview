@@ -52,7 +52,10 @@ export default function App() {
   /** Tracks how the current session started so we can load another question. */
   const [sessionSource, setSessionSource] = useState(null);
   const [questionRound, setQuestionRound] = useState(0);
-  const [resumeRunId, setResumeRunId] = useState(null);
+  /** Shared by Resume + Web multi-question runs */
+  const [sessionRunId, setSessionRunId] = useState(null);
+  /** Each graded answer in this interview (all modes). */
+  const [sessionHistory, setSessionHistory] = useState([]);
 
   const mediaRecorderRef = useRef(null);
   /** Bank: IDs already seen this session (avoid immediate repeats). */
@@ -162,11 +165,12 @@ export default function App() {
     setLoading(true);
     setResult(null);
     setQuestion(null);
+    setSessionHistory([]);
     try {
       const q = await fetchResumeQuestion();
       setSessionSource("resume");
       setQuestionRound(1);
-      setResumeRunId(q.interview_run_id || q.question_id || null);
+      setSessionRunId(q.interview_run_id || q.question_id || null);
       setQuestion(q);
       setStep("interview");
     } catch (e) {
@@ -181,10 +185,12 @@ export default function App() {
     setLoading(true);
     setResult(null);
     setQuestion(null);
+    setSessionHistory([]);
     try {
       const q = await fetchWebQuestion();
       setSessionSource("web");
       setQuestionRound(1);
+      setSessionRunId(q.interview_run_id || q.question_id || null);
       setQuestion(q);
       setStep("interview");
     } catch (e) {
@@ -204,12 +210,14 @@ export default function App() {
     setResult(null);
     setQuestion(null);
     bankSeenIdsRef.current = new Set();
+    setSessionHistory([]);
     try {
       const q = await apiJson(
         `/api/get-question?role=${encodeURIComponent(bankRole)}`
       );
       setSessionSource("bank");
       setQuestionRound(1);
+      setSessionRunId(null);
       setQuestion(q);
       setStep("interview");
     } catch (e) {
@@ -244,7 +252,7 @@ export default function App() {
           `/api/get-question?role=${encodeURIComponent(bankRole)}${ex}`
         );
       } else if (sessionSource === "resume") {
-        const rid = resumeRunId || question?.interview_run_id;
+        const rid = sessionRunId || question?.interview_run_id;
         if (!rid) {
           throw new Error("Missing interview run. Start again from the Resume tab.");
         }
@@ -255,7 +263,16 @@ export default function App() {
           timeoutMs: API_TIMEOUT_MS,
         });
       } else {
-        q = await fetchWebQuestion();
+        const wid = sessionRunId || question?.interview_run_id;
+        if (!wid) {
+          throw new Error("Missing web session. Start again from the Web page tab.");
+        }
+        q = await apiJson("/api/web-next-question", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ interview_run_id: wid }),
+          timeoutMs: API_TIMEOUT_MS,
+        });
       }
       setQuestionRound((n) => n + 1);
       setQuestion(q);
@@ -284,6 +301,31 @@ export default function App() {
         timeoutMs: API_TIMEOUT_MS,
       });
       if (hitMax) data._note = "Stopped at max length (10 min).";
+      const sourceLabel =
+        sessionSource === "bank"
+          ? "Question bank"
+          : sessionSource === "resume"
+            ? "Resume"
+            : "Web page";
+      setSessionHistory((h) => [
+        ...h,
+        {
+          round: questionRound,
+          source: sessionSource,
+          sourceLabel,
+          question_kind: question?.question_kind,
+          question_text: question?.question_text,
+          question_id: question?.question_id,
+          bank_role_category: sessionSource === "bank" ? bankRole : null,
+          transcript: data.transcript,
+          scores: data.scores,
+          feedback_summary: data.feedback_summary,
+          suggestions_for_improvement: data.suggestions_for_improvement,
+          improved_answer_example: data.improved_answer_example,
+          perfect_answer: data.perfect_answer,
+          note: data._note,
+        },
+      ]);
       setResult(data);
       setStep("results");
     } catch (e) {
@@ -382,7 +424,7 @@ export default function App() {
     }
   };
 
-  const finishInterview = () => {
+  const resetSessionToSetup = () => {
     setResult(null);
     setQuestion(null);
     setResumeFile(null);
@@ -391,9 +433,19 @@ export default function App() {
     liveFinalRef.current = "";
     setSessionSource(null);
     setQuestionRound(0);
-    setResumeRunId(null);
+    setSessionRunId(null);
     bankSeenIdsRef.current = new Set();
+    setSessionHistory([]);
     setStep("setup");
+  };
+
+  /** End interview: show full history if any answers were graded. */
+  const finishInterview = () => {
+    if (sessionHistory.length > 0) {
+      setStep("summary");
+      return;
+    }
+    resetSessionToSetup();
   };
 
   const formatTime = (ms) => {
@@ -620,7 +672,10 @@ export default function App() {
                 ? " · Self-introduction"
                 : question.question_kind === "technical"
                   ? " · Technical"
-                  : ""}
+                  : question.question_kind === "web" ||
+                      question.question_kind === "web_followup"
+                    ? " · From page"
+                    : ""}
             </p>
           ) : null}
           <p className="question-text">{question.question_text}</p>
@@ -677,6 +732,13 @@ export default function App() {
 
       {step === "results" && result && (
         <div className="card">
+          {sessionHistory.length > 0 ? (
+            <p className="session-progress">
+              Session: <strong>{sessionHistory.length}</strong> answered question
+              {sessionHistory.length === 1 ? "" : "s"} recorded — view full report when you
+              finish.
+            </p>
+          ) : null}
           {result._note ? (
             <p className="status" style={{ marginBottom: "1rem" }}>
               {result._note}
@@ -727,6 +789,75 @@ export default function App() {
               disabled={loading}
             >
               Finish interview
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "summary" && (
+        <div className="card summary-card">
+          <h2 className="summary-title">Interview session report</h2>
+          <p className="summary-meta">
+            You completed <strong>{sessionHistory.length}</strong> graded question
+            {sessionHistory.length === 1 ? "" : "s"}. Below is each question, your transcript,
+            ratings, suggestions, and how to say it better.
+          </p>
+          <ol className="history-list">
+            {sessionHistory.map((item, idx) => (
+              <li key={`${item.question_id}-${idx}`} className="history-item">
+                <div className="history-head">
+                  <span className="history-round">Q{item.round}</span>
+                  <span className="history-source">{item.sourceLabel}</span>
+                  {item.bank_role_category ? (
+                    <span className="history-bank-role">{item.bank_role_category}</span>
+                  ) : null}
+                  {item.question_kind ? (
+                    <span className="history-kind">{item.question_kind}</span>
+                  ) : null}
+                </div>
+                <p className="history-question">{item.question_text}</p>
+                {item.note ? (
+                  <p className="history-note">{item.note}</p>
+                ) : null}
+                <h4 className="history-h">Your answer (transcript)</h4>
+                <p className="history-transcript">
+                  {item.transcript || "—"}
+                </p>
+                <h4 className="history-h">Ratings (1–5)</h4>
+                <div className="scores scores-compact">
+                  {["clarity", "correctness", "completeness"].map((k) => (
+                    <div key={k} className="score-pill">
+                      <span>{item.scores?.[k] ?? "—"}</span>
+                      <small>{k}</small>
+                    </div>
+                  ))}
+                </div>
+                <h4 className="history-h">Summary</h4>
+                <p className="history-p">{item.feedback_summary || "—"}</p>
+                <h4 className="history-h">Suggestions for improvement</h4>
+                <p className="history-p history-suggestions">
+                  {item.suggestions_for_improvement || "—"}
+                </p>
+                {item.improved_answer_example ? (
+                  <>
+                    <h4 className="history-h">How to say it better</h4>
+                    <p className="improved-sample history-improved">
+                      {item.improved_answer_example}
+                    </p>
+                  </>
+                ) : null}
+                <h4 className="history-h">Reference answer</h4>
+                <div className="perfect history-perfect">{item.perfect_answer || "—"}</div>
+              </li>
+            ))}
+          </ol>
+          <div className="row" style={{ marginTop: "1.5rem" }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={resetSessionToSetup}
+            >
+              Start over
             </button>
           </div>
         </div>

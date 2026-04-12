@@ -10,7 +10,10 @@ from app.services.question_from_resume import (
     generate_resume_intro_pack,
     generate_resume_technical_question,
 )
-from app.services.question_from_web import generate_question_from_web_text
+from app.services.question_from_web import (
+    generate_followup_web_question,
+    generate_question_from_web_text,
+)
 from app.services.resume import extract_text_from_upload
 from app.services.transcription import transcribe_audio
 from app.services.web_scrape import fetch_page_text
@@ -203,6 +206,12 @@ def resume_next_question():
         return jsonify(
             {"error": "Interview run not found. Start again from the Resume tab."}
         ), 404
+    if (anchor.source_url or "").strip():
+        return jsonify(
+            {
+                "error": "This run is from the Web tab. Use the web flow for the next question."
+            }
+        ), 400
     if not (anchor.resume_snapshot or "").strip():
         return jsonify(
             {"error": "This session has no stored resume context. Upload again."}
@@ -309,6 +318,10 @@ def prepare_from_web():
             {"error": "AI could not build a question from this page", "detail": str(e)}
         ), 503
 
+    snap = page_text.strip()
+    if len(snap) > 12000:
+        snap = snap[:11997] + "..."
+
     sid = uuid.uuid4()
     s = _session()
     s.add(
@@ -319,6 +332,9 @@ def prepare_from_web():
             question_text=pack["question_text"],
             ideal_answer=pack["ideal_answer"],
             source_url=final_url[:2048],
+            interview_run_id=sid,
+            resume_snapshot=snap,
+            question_kind="web",
         )
     )
     s.commit()
@@ -326,10 +342,98 @@ def prepare_from_web():
     return jsonify(
         {
             "question_id": str(sid),
+            "interview_run_id": str(sid),
+            "question_kind": "web",
             "question_text": pack["question_text"],
             "resume_summary": pack["page_summary"],
             "source_url": final_url,
             "role": role,
+            "source": "web",
+        }
+    )
+
+
+@bp.post("/web-next-question")
+@limiter.limit("30 per hour")
+def web_next_question():
+    """Next question from the same scraped page (non-repeating within the run)."""
+    if not _llm_configured(current_app):
+        return _need_llm_response(current_app)
+
+    data = request.get_json(silent=True) or {}
+    rid_raw = (data.get("interview_run_id") or "").strip()
+    try:
+        run_uuid = uuid.UUID(rid_raw)
+    except ValueError:
+        return jsonify({"error": "Invalid or missing interview_run_id"}), 400
+
+    s = _session()
+    anchor = s.get(InterviewSession, run_uuid)
+    if not anchor or anchor.interview_run_id != run_uuid:
+        return jsonify(
+            {"error": "Web session not found. Start again from the Web page tab."}
+        ), 404
+    if not (anchor.source_url or "").strip():
+        return jsonify({"error": "Not a web-page interview session."}), 400
+    if not (anchor.resume_snapshot or "").strip():
+        return jsonify(
+            {"error": "Session has no stored page text. Scrape the URL again."}
+        ), 400
+
+    asked = list(
+        s.execute(
+            select(InterviewSession.question_text).where(
+                InterviewSession.interview_run_id == run_uuid
+            )
+        ).scalars().all()
+    )
+
+    try:
+        nxt = generate_followup_web_question(
+            anchor.role_text,
+            anchor.resume_snapshot or "",
+            (anchor.source_url or "")[:2048],
+            anchor.resume_summary,
+            asked,
+            google_api_key=current_app.config.get("GOOGLE_API_KEY"),
+            gemini_model=current_app.config["GEMINI_MODEL"],
+            groq_api_key=current_app.config.get("GROQ_API_KEY"),
+            groq_model=current_app.config["GROQ_MODEL"],
+            hf_api_key=current_app.config.get("HUGGINGFACE_API_KEY"),
+            hf_model=current_app.config["HUGGINGFACE_MODEL"],
+            hf_base_url=current_app.config["HUGGINGFACE_BASE_URL"],
+        )
+    except Exception as e:
+        current_app.logger.exception("web follow-up question failed")
+        return jsonify(
+            {"error": "AI could not generate the next question", "detail": str(e)}
+        ), 503
+
+    sid = uuid.uuid4()
+    s.add(
+        InterviewSession(
+            session_id=sid,
+            role_text=anchor.role_text[:512],
+            resume_summary=anchor.resume_summary,
+            question_text=nxt["question_text"],
+            ideal_answer=nxt["ideal_answer"],
+            source_url=(anchor.source_url or "")[:2048],
+            interview_run_id=run_uuid,
+            resume_snapshot=anchor.resume_snapshot,
+            question_kind="web_followup",
+        )
+    )
+    s.commit()
+
+    return jsonify(
+        {
+            "question_id": str(sid),
+            "interview_run_id": str(run_uuid),
+            "question_kind": "web_followup",
+            "question_text": nxt["question_text"],
+            "resume_summary": anchor.resume_summary,
+            "source_url": anchor.source_url,
+            "role": anchor.role_text,
             "source": "web",
         }
     )
