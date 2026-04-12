@@ -105,6 +105,7 @@ def create_app(config_class=Config):
         Base.metadata.create_all(bind=engine)
         _ensure_sqlite_interview_sessions_source_url(engine)
         _ensure_sqlite_interview_sessions_resume_round_cols(engine)
+        _ensure_interview_recordings_storage_backend(engine)
 
     return app
 
@@ -151,3 +152,21 @@ def _ensure_sqlite_interview_sessions_resume_round_cols(engine) -> None:
     with engine.begin() as conn:
         for stmt in alters:
             conn.execute(text(stmt))
+
+
+def _ensure_interview_recordings_storage_backend(engine) -> None:
+    """Add storage_backend for existing DBs (SQLite + Postgres)."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if not insp.has_table("interview_recordings"):
+        return
+    cols = {c["name"] for c in insp.get_columns("interview_recordings")}
+    if "storage_backend" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE interview_recordings ADD COLUMN storage_backend VARCHAR(32) DEFAULT 'local'"
+            )
+        )

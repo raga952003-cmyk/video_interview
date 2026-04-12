@@ -6,6 +6,7 @@
 #   - Grading: GOOGLE_API_KEY and/or GROQ_API_KEY and/or HUGGINGFACE_API_KEY
 # Optional: GEMINI_MODEL, ADMIN_API_KEY (admin APIs), CORS_ORIGINS if UI is on another domain.
 # SQLite + recordings live in the container filesystem unless you attach a disk or use DATABASE_URL (Postgres).
+# Do not set DATABASE_URL to a placeholder (e.g. host literally "HOST"); omit it or use the real Internal URL.
 #
 # To use a Render Environment Group instead, replace `envVars` below with:
 #   envVars: [ { fromGroup: YOUR_GROUP_NAME } ]
@@ -41,4 +42,10 @@ services:
       - key: LOCAL_WHISPER
         sync: false
       - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
         sync: false

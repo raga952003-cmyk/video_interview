@@ -1,18 +1,60 @@
+import logging
 import os
+from urllib.parse import urlparse
 
 _backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _default_sqlite_path = os.path.join(_backend_dir, "instance", "interview_coach.db")
 _default_sqlite_uri = "sqlite:///" + _default_sqlite_path.replace("\\", "/")
 
+_log = logging.getLogger(__name__)
+
+# Tutorial / copy-paste URLs often leave the literal host "HOST" → DNS error at boot.
+_PLACEHOLDER_PG_HOSTS = frozenset(
+    {
+        "host",
+        "hostname",
+        "your-host",
+        "db-host",
+        "postgres-host",
+        "dbhost",
+    }
+)
+
+
+def resolve_sqlalchemy_database_uri(
+    raw: str | None, *, warn_placeholder: bool = True
+) -> str:
+    """
+    Return SQLAlchemy DB URI. Empty DATABASE_URL → bundled SQLite.
+    Obvious Postgres placeholders (e.g. @HOST:5432) → SQLite so deploy does not crash.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return _default_sqlite_uri
+    if s.startswith("postgres://"):
+        s = s.replace("postgres://", "postgresql://", 1)
+    if s.startswith("postgresql://"):
+        try:
+            host = (urlparse(s).hostname or "").strip().lower()
+            if host in _PLACEHOLDER_PG_HOSTS:
+                if warn_placeholder:
+                    _log.warning(
+                        "DATABASE_URL looks like a placeholder (host=%r); using SQLite. "
+                        "Remove DATABASE_URL or paste the real Postgres connection string.",
+                        host,
+                    )
+                return _default_sqlite_uri
+        except Exception:
+            pass
+    return s
+
 
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-change-me")
-    _db_url = (os.environ.get("DATABASE_URL") or "").strip()
-    SQLALCHEMY_DATABASE_URI = _db_url if _db_url else _default_sqlite_uri
-    if SQLALCHEMY_DATABASE_URI.startswith("postgres://"):
-        SQLALCHEMY_DATABASE_URI = SQLALCHEMY_DATABASE_URI.replace(
-            "postgres://", "postgresql://", 1
-        )
+    SQLALCHEMY_DATABASE_URI = resolve_sqlalchemy_database_uri(
+        os.environ.get("DATABASE_URL"),
+        warn_placeholder=False,
+    )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MAX_CONTENT_LENGTH = int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -52,6 +94,14 @@ class Config:
     ).strip()
     # Optional: list/download all recordings (header X-Admin-Key)
     ADMIN_API_KEY = (os.environ.get("ADMIN_API_KEY") or "").strip()
+    # Optional: Supabase Storage for recordings (private bucket; service role server-side)
+    SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
+    SUPABASE_SERVICE_ROLE_KEY = (
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
+    ).strip()
+    SUPABASE_STORAGE_BUCKET = (
+        os.environ.get("SUPABASE_STORAGE_BUCKET") or "interview-recordings"
+    ).strip()
 
 
 def sync_env_into_app(app) -> None:
@@ -61,10 +111,10 @@ def sync_env_into_app(app) -> None:
     Needed because the Config class body runs at import time; Flask's debug reloader
     can import the app package before run.py's load_dotenv() has run in that process.
     """
-    uri = (os.environ.get("DATABASE_URL") or "").strip() or _default_sqlite_uri
-    if uri.startswith("postgres://"):
-        uri = uri.replace("postgres://", "postgresql://", 1)
-    app.config["SQLALCHEMY_DATABASE_URI"] = uri
+    app.config["SQLALCHEMY_DATABASE_URI"] = resolve_sqlalchemy_database_uri(
+        os.environ.get("DATABASE_URL"),
+        warn_placeholder=True,
+    )
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-change-me")
     app.config["MAX_CONTENT_LENGTH"] = (
         int(os.environ.get("MAX_UPLOAD_MB", "25")) * 1024 * 1024
@@ -114,3 +164,12 @@ def sync_env_into_app(app) -> None:
         os.environ.get("LOCAL_WHISPER_COMPUTE_TYPE") or "int8"
     ).strip()
     app.config["ADMIN_API_KEY"] = (os.environ.get("ADMIN_API_KEY") or "").strip()
+    app.config["SUPABASE_URL"] = (os.environ.get("SUPABASE_URL") or "").strip().rstrip(
+        "/"
+    )
+    app.config["SUPABASE_SERVICE_ROLE_KEY"] = (
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or ""
+    ).strip()
+    app.config["SUPABASE_STORAGE_BUCKET"] = (
+        os.environ.get("SUPABASE_STORAGE_BUCKET") or "interview-recordings"
+    ).strip()

@@ -74,6 +74,8 @@ class InterviewRecording(Base):
     byte_size: Mapped[int] = mapped_column(Integer, default=0)
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
     access_token: Mapped[str] = mapped_column(String(64), index=True)
+    # "local" = file under Flask instance_path; "supabase" = object at file_path in bucket
+    storage_backend: Mapped[str] = mapped_column(String(32), default="local")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

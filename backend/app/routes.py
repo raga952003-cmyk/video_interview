@@ -4,7 +4,7 @@ import secrets
 import uuid
 from io import BytesIO
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, current_app, jsonify, redirect, request, send_file
 from sqlalchemy import func, select
 from werkzeug.datastructures import FileStorage
 
@@ -21,6 +21,12 @@ from app.services.question_from_web import (
 )
 from app.services.resume import extract_text_from_upload
 from app.services.transcription import transcribe_audio
+from app.services.supabase_storage import (
+    recording_storage_supabase_ready,
+    remove_recording_object,
+    signed_recording_url,
+    upload_recording,
+)
 from app.services.web_scrape import fetch_page_text
 
 bp = Blueprint("api", __name__)
@@ -112,6 +118,9 @@ def health():
         ),
         "local_whisper_enabled": bool(current_app.config.get("LOCAL_WHISPER")),
         "admin_api_configured": bool(_cfg_strip(current_app, "ADMIN_API_KEY")),
+        "supabase_recording_storage_ready": recording_storage_supabase_ready(
+            current_app.config
+        ),
     }
     llm_ready = _llm_configured(current_app)
     body = {
@@ -600,14 +609,36 @@ def analyze_answer_route():
     mime = raw_mime or ("video/webm" if is_video_field else "audio/webm")
     rel = f"recordings/{rid}.webm"
     rec_dir = os.path.join(current_app.instance_path, "recordings")
-    os.makedirs(rec_dir, exist_ok=True)
-    abs_path = os.path.join(rec_dir, f"{rid}.webm")
-    try:
-        with open(abs_path, "wb") as out:
-            out.write(raw_bytes)
-    except OSError as e:
-        current_app.logger.exception("recording file write failed")
-        return jsonify({"error": "Could not store recording", "detail": str(e)}), 500
+    cfg = current_app.config
+    storage_backend = "local"
+    abs_path = None
+    if recording_storage_supabase_ready(cfg):
+        try:
+            upload_recording(cfg, rel, raw_bytes, mime)
+            storage_backend = "supabase"
+        except Exception:
+            current_app.logger.exception(
+                "supabase recording upload failed; using local file"
+            )
+            os.makedirs(rec_dir, exist_ok=True)
+            abs_path = os.path.join(rec_dir, f"{rid}.webm")
+            try:
+                with open(abs_path, "wb") as out:
+                    out.write(raw_bytes)
+            except OSError as e:
+                current_app.logger.exception("recording file write failed")
+                return jsonify(
+                    {"error": "Could not store recording", "detail": str(e)}
+                ), 500
+    else:
+        os.makedirs(rec_dir, exist_ok=True)
+        abs_path = os.path.join(rec_dir, f"{rid}.webm")
+        try:
+            with open(abs_path, "wb") as out:
+                out.write(raw_bytes)
+        except OSError as e:
+            current_app.logger.exception("recording file write failed")
+            return jsonify({"error": "Could not store recording", "detail": str(e)}), 500
 
     token = secrets.token_hex(32)
     row = InterviewRecording(
@@ -619,6 +650,7 @@ def analyze_answer_route():
         byte_size=len(raw_bytes),
         transcript=transcript,
         access_token=token,
+        storage_backend=storage_backend,
     )
     s.add(row)
     try:
@@ -626,10 +658,16 @@ def analyze_answer_route():
     except Exception:
         current_app.logger.exception("recording metadata commit failed")
         s.rollback()
-        try:
-            os.remove(abs_path)
-        except OSError:
-            pass
+        if storage_backend == "supabase":
+            try:
+                remove_recording_object(cfg, rel)
+            except Exception:
+                current_app.logger.exception("supabase rollback remove failed")
+        elif abs_path:
+            try:
+                os.remove(abs_path)
+            except OSError:
+                pass
         return jsonify({"error": "Could not save recording metadata"}), 500
 
     return jsonify(
@@ -650,6 +688,14 @@ def get_recording_media(recording_id: uuid.UUID):
     row = s.get(InterviewRecording, recording_id)
     if not row or not _recording_token_ok(token, row.access_token):
         return jsonify({"error": "Not found"}), 404
+    backend = (getattr(row, "storage_backend", None) or "local").strip() or "local"
+    if backend == "supabase":
+        if not recording_storage_supabase_ready(current_app.config):
+            return jsonify({"error": "Storage not configured"}), 503
+        url = signed_recording_url(current_app.config, row.file_path, 3600)
+        if not url:
+            return jsonify({"error": "Could not create download URL"}), 502
+        return redirect(url, code=302)
     abs_path = os.path.normpath(
         os.path.join(current_app.instance_path, row.file_path.replace("/", os.sep))
     )
@@ -686,6 +732,7 @@ def admin_list_recordings():
                     "media_kind": r.media_kind,
                     "mime_type": r.mime_type,
                     "byte_size": r.byte_size,
+                    "storage_backend": getattr(r, "storage_backend", None) or "local",
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                     "transcript_preview": (r.transcript or "")[:240],
                 }
@@ -706,6 +753,14 @@ def admin_get_recording_media(recording_id: uuid.UUID):
     row = s.get(InterviewRecording, recording_id)
     if not row:
         return jsonify({"error": "Not found"}), 404
+    backend = (getattr(row, "storage_backend", None) or "local").strip() or "local"
+    if backend == "supabase":
+        if not recording_storage_supabase_ready(current_app.config):
+            return jsonify({"error": "Storage not configured"}), 503
+        url = signed_recording_url(current_app.config, row.file_path, 3600)
+        if not url:
+            return jsonify({"error": "Could not create download URL"}), 502
+        return redirect(url, code=302)
     abs_path = os.path.normpath(
         os.path.join(current_app.instance_path, row.file_path.replace("/", os.sep))
     )
