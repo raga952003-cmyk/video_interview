@@ -104,6 +104,7 @@ def create_app(config_class=Config):
     with app.app_context():
         Base.metadata.create_all(bind=engine)
         _ensure_sqlite_interview_sessions_source_url(engine)
+        _ensure_sqlite_interview_sessions_resume_round_cols(engine)
 
     return app
 
@@ -124,3 +125,29 @@ def _ensure_sqlite_interview_sessions_source_url(engine) -> None:
         conn.execute(
             text("ALTER TABLE interview_sessions ADD COLUMN source_url VARCHAR(2048)")
         )
+
+
+def _ensure_sqlite_interview_sessions_resume_round_cols(engine) -> None:
+    """Add resume multi-round columns on existing SQLite DBs."""
+    if engine.dialect.name != "sqlite":
+        return
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    if not insp.has_table("interview_sessions"):
+        return
+    cols = {c["name"] for c in insp.get_columns("interview_sessions")}
+    alters = []
+    if "interview_run_id" not in cols:
+        alters.append("ALTER TABLE interview_sessions ADD COLUMN interview_run_id VARCHAR(36)")
+    if "resume_snapshot" not in cols:
+        alters.append("ALTER TABLE interview_sessions ADD COLUMN resume_snapshot TEXT")
+    if "question_kind" not in cols:
+        alters.append(
+            "ALTER TABLE interview_sessions ADD COLUMN question_kind VARCHAR(32)"
+        )
+    if not alters:
+        return
+    with engine.begin() as conn:
+        for stmt in alters:
+            conn.execute(text(stmt))

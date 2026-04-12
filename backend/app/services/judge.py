@@ -45,7 +45,7 @@ Analyze the candidate's answer based on how well it aligns with the "Ideal Answe
   }},
   "improved_answer_example": "<2-4 sentences: how the candidate could phrase a stronger answer, in first person (I would…), incorporating key ideas from the ideal answer>",
   "feedback_summary": "<One sentence summary>",
-  "suggestions_for_improvement": "<Actionable advice>",
+  "suggestions_for_improvement": "<Actionable advice; for automation/Java/Selenium topics cite concrete practices—waits, locators, POM, TestNG/JUnit, API testing, CI, flakiness—only what fits>",
   "perfect_answer": "<Exact full text of the Ideal Answer section above, verbatim>"
 }}
 """
@@ -79,7 +79,7 @@ Return JSON with keys:
 - scores: object with integers 1-5 only: clarity, correctness, completeness
 - improved_answer_example: string, 2-4 sentences, first person, stronger phrasing aligned with ideal answer
 - feedback_summary: string, one sentence
-- suggestions_for_improvement: string
+- suggestions_for_improvement: string, actionable; for automation/Java/Selenium topics mention specific practices (waits, POM, TestNG, APIs, CI) where relevant
 - perfect_answer: string, copy the ideal answer text verbatim
 
 JSON only."""

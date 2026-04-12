@@ -6,7 +6,10 @@ from sqlalchemy import func, select
 from app.limiter_ext import limiter
 from app.models import InterviewSession, Question
 from app.services.judge import analyze_answer
-from app.services.question_from_resume import generate_interview_from_resume
+from app.services.question_from_resume import (
+    generate_resume_intro_pack,
+    generate_resume_technical_question,
+)
 from app.services.question_from_web import generate_question_from_web_text
 from app.services.resume import extract_text_from_upload
 from app.services.transcription import transcribe_audio
@@ -129,7 +132,7 @@ def prepare_from_resume():
         return jsonify({"error": "Could not read resume file"}), 400
 
     try:
-        pack = generate_interview_from_resume(
+        pack = generate_resume_intro_pack(
             role,
             resume_text,
             google_api_key=current_app.config.get("GOOGLE_API_KEY"),
@@ -146,6 +149,10 @@ def prepare_from_resume():
             {"error": "AI could not generate a question", "detail": str(e)}
         ), 503
 
+    snap = resume_text.strip()
+    if len(snap) > 12000:
+        snap = snap[:11997] + "..."
+
     sid = uuid.uuid4()
     s = _session()
     s.add(
@@ -156,6 +163,9 @@ def prepare_from_resume():
             question_text=pack["question_text"],
             ideal_answer=pack["ideal_answer"],
             source_url=None,
+            interview_run_id=sid,
+            resume_snapshot=snap,
+            question_kind="intro",
         )
     )
     s.commit()
@@ -163,9 +173,93 @@ def prepare_from_resume():
     return jsonify(
         {
             "question_id": str(sid),
+            "interview_run_id": str(sid),
+            "question_kind": "intro",
             "question_text": pack["question_text"],
             "resume_summary": pack["resume_summary"],
             "role": role,
+            "source": "resume",
+        }
+    )
+
+
+@bp.post("/resume-next-question")
+@limiter.limit("30 per hour")
+def resume_next_question():
+    """Next technical question in a resume-driven run (after self-intro round)."""
+    if not _llm_configured(current_app):
+        return _need_llm_response(current_app)
+
+    data = request.get_json(silent=True) or {}
+    rid_raw = (data.get("interview_run_id") or "").strip()
+    try:
+        run_uuid = uuid.UUID(rid_raw)
+    except ValueError:
+        return jsonify({"error": "Invalid or missing interview_run_id"}), 400
+
+    s = _session()
+    anchor = s.get(InterviewSession, run_uuid)
+    if not anchor or anchor.interview_run_id != run_uuid:
+        return jsonify(
+            {"error": "Interview run not found. Start again from the Resume tab."}
+        ), 404
+    if not (anchor.resume_snapshot or "").strip():
+        return jsonify(
+            {"error": "This session has no stored resume context. Upload again."}
+        ), 400
+
+    asked = list(
+        s.execute(
+            select(InterviewSession.question_text).where(
+                InterviewSession.interview_run_id == run_uuid
+            )
+        ).scalars().all()
+    )
+
+    try:
+        tech = generate_resume_technical_question(
+            anchor.role_text,
+            anchor.resume_summary,
+            anchor.resume_snapshot or "",
+            asked,
+            google_api_key=current_app.config.get("GOOGLE_API_KEY"),
+            gemini_model=current_app.config["GEMINI_MODEL"],
+            groq_api_key=current_app.config.get("GROQ_API_KEY"),
+            groq_model=current_app.config["GROQ_MODEL"],
+            hf_api_key=current_app.config.get("HUGGINGFACE_API_KEY"),
+            hf_model=current_app.config["HUGGINGFACE_MODEL"],
+            hf_base_url=current_app.config["HUGGINGFACE_BASE_URL"],
+        )
+    except Exception as e:
+        current_app.logger.exception("resume technical question failed")
+        return jsonify(
+            {"error": "AI could not generate the next question", "detail": str(e)}
+        ), 503
+
+    sid = uuid.uuid4()
+    s.add(
+        InterviewSession(
+            session_id=sid,
+            role_text=anchor.role_text[:512],
+            resume_summary=anchor.resume_summary,
+            question_text=tech["question_text"],
+            ideal_answer=tech["ideal_answer"],
+            source_url=None,
+            interview_run_id=run_uuid,
+            resume_snapshot=anchor.resume_snapshot,
+            question_kind="technical",
+        )
+    )
+    s.commit()
+
+    return jsonify(
+        {
+            "question_id": str(sid),
+            "interview_run_id": str(run_uuid),
+            "question_kind": "technical",
+            "question_text": tech["question_text"],
+            "resume_summary": anchor.resume_summary,
+            "role": anchor.role_text,
             "source": "resume",
         }
     )
@@ -246,13 +340,31 @@ def get_question():
     role = (request.args.get("role") or "").strip()
     if not role:
         return jsonify({"error": "Missing role parameter"}), 400
+    exclude_raw = (request.args.get("exclude") or "").strip()
+    exclude_ids: list[uuid.UUID] = []
+    for part in exclude_raw.split(",")[:80]:
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            exclude_ids.append(uuid.UUID(part))
+        except ValueError:
+            continue
+
     s = _session()
-    q = s.execute(
-        select(Question)
-        .where(Question.role_category == role)
-        .order_by(func.random())
-        .limit(1)
-    ).scalar_one_or_none()
+    qry = select(Question).where(Question.role_category == role)
+    if exclude_ids:
+        qry = qry.where(~Question.question_id.in_(exclude_ids))
+    q = s.execute(qry.order_by(func.random()).limit(1)).scalar_one_or_none()
+    if not q and exclude_ids:
+        q = (
+            s.execute(
+                select(Question)
+                .where(Question.role_category == role)
+                .order_by(func.random())
+                .limit(1)
+            ).scalar_one_or_none()
+        )
     if not q:
         return jsonify({"error": f"No questions found for role: {role}"}), 404
     return jsonify(

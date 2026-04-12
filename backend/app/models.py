@@ -42,6 +42,12 @@ class InterviewSession(Base):
     question_text: Mapped[str] = mapped_column(Text)
     ideal_answer: Mapped[str] = mapped_column(Text)
     source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # Resume multi-round: all rows in a run share interview_run_id (= first session_id).
+    interview_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, nullable=True, index=True
+    )
+    resume_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -52,8 +52,11 @@ export default function App() {
   /** Tracks how the current session started so we can load another question. */
   const [sessionSource, setSessionSource] = useState(null);
   const [questionRound, setQuestionRound] = useState(0);
+  const [resumeRunId, setResumeRunId] = useState(null);
 
   const mediaRecorderRef = useRef(null);
+  /** Bank: IDs already seen this session (avoid immediate repeats). */
+  const bankSeenIdsRef = useRef(new Set());
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
@@ -163,6 +166,7 @@ export default function App() {
       const q = await fetchResumeQuestion();
       setSessionSource("resume");
       setQuestionRound(1);
+      setResumeRunId(q.interview_run_id || q.question_id || null);
       setQuestion(q);
       setStep("interview");
     } catch (e) {
@@ -199,6 +203,7 @@ export default function App() {
     setLoading(true);
     setResult(null);
     setQuestion(null);
+    bankSeenIdsRef.current = new Set();
     try {
       const q = await apiJson(
         `/api/get-question?role=${encodeURIComponent(bankRole)}`
@@ -227,11 +232,28 @@ export default function App() {
     try {
       let q;
       if (sessionSource === "bank") {
+        if (question?.question_id) {
+          bankSeenIdsRef.current.add(question.question_id);
+        }
+        const seen = [...bankSeenIdsRef.current];
+        const ex =
+          seen.length > 0
+            ? `&exclude=${encodeURIComponent(seen.join(","))}`
+            : "";
         q = await apiJson(
-          `/api/get-question?role=${encodeURIComponent(bankRole)}`
+          `/api/get-question?role=${encodeURIComponent(bankRole)}${ex}`
         );
       } else if (sessionSource === "resume") {
-        q = await fetchResumeQuestion();
+        const rid = resumeRunId || question?.interview_run_id;
+        if (!rid) {
+          throw new Error("Missing interview run. Start again from the Resume tab.");
+        }
+        q = await apiJson("/api/resume-next-question", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ interview_run_id: rid }),
+          timeoutMs: API_TIMEOUT_MS,
+        });
       } else {
         q = await fetchWebQuestion();
       }
@@ -369,6 +391,8 @@ export default function App() {
     liveFinalRef.current = "";
     setSessionSource(null);
     setQuestionRound(0);
+    setResumeRunId(null);
+    bankSeenIdsRef.current = new Set();
     setStep("setup");
   };
 
@@ -464,8 +488,10 @@ export default function App() {
                 </button>
               </div>
               <p className="hint">
-                We read your resume, summarize it, and generate a question. After
-                feedback, use Next question for another round, or Finish interview to
+                We summarize your resume, then your <strong>first question is a brief
+                self-introduction</strong> tailored to you. After that,{" "}
+                <strong>technical questions</strong> are generated from your resume
+                (no repeats in-session). Use Next question to continue or Finish to
                 stop.
               </p>
             </div>
@@ -542,8 +568,9 @@ export default function App() {
                 </button>
               </div>
               <p className="hint">
-                Pick a category (e.g. Java Automation Testing). After each graded
-                answer, choose Next question or Finish interview.
+                Large question pools (e.g. Java Automation Testing) rotate without
+                repeating the same item until you have seen them all. Next question
+                after each result, or Finish interview.
               </p>
             </div>
           )}
@@ -586,7 +613,14 @@ export default function App() {
           {questionRound > 0 ? (
             <p className="round-line">
               Question {questionRound}
-              {sessionSource ? ` · ${sessionSource === "bank" ? "bank" : sessionSource === "resume" ? "resume" : "web"}` : ""}
+              {sessionSource
+                ? ` · ${sessionSource === "bank" ? "bank" : sessionSource === "resume" ? "resume" : "web"}`
+                : ""}
+              {question.question_kind === "intro"
+                ? " · Self-introduction"
+                : question.question_kind === "technical"
+                  ? " · Technical"
+                  : ""}
             </p>
           ) : null}
           <p className="question-text">{question.question_text}</p>

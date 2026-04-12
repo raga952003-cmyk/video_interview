@@ -160,6 +160,238 @@ ROWS: tuple[Row, ...] = (
         ),
         source_url="seed:curated",
     ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000004"),
+        role_category="Java Automation Testing",
+        question_text="What is the difference between == and .equals() in Java?",
+        scraped_ideal_answer=(
+            "`==` compares object references (same memory address). `.equals()` compares "
+            "logical equality of values when overridden (e.g. String content). In automation, "
+            "use `.equals()` for comparing expected vs actual text from the UI."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000005"),
+        role_category="Java Automation Testing",
+        question_text="What are the advantages of using Java for automation testing?",
+        scraped_ideal_answer=(
+            "Java is platform-independent, has mature frameworks (Selenium, TestNG, JUnit), "
+            "strong libraries (POI for Excel, Rest Assured for APIs), good IDE support, and a "
+            "large community—making it a default choice for enterprise test automation."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000006"),
+        role_category="Java Automation Testing",
+        question_text="How do try, catch, and finally work in Java for handling test failures?",
+        scraped_ideal_answer=(
+            "`try` wraps code that may throw, `catch` handles specific exceptions (e.g. "
+            "TimeoutException, NoSuchElementException), and `finally` runs cleanup such as "
+            "quitting the driver or closing files whether or not an error occurred."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000007"),
+        role_category="Java Automation Testing",
+        question_text="What is a fluent wait in Selenium, and how does it differ from explicit wait?",
+        scraped_ideal_answer=(
+            "Fluent wait (in older APIs) configures max wait time and polling interval before "
+            "re-checking a condition. Explicit wait (`WebDriverWait` + `ExpectedConditions`) "
+            "waits until a condition is met or a timeout occurs—both are preferable to fixed "
+            "`Thread.sleep` for stability."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000008"),
+        role_category="Java Automation Testing",
+        question_text="How do you read test data from Excel in Java?",
+        scraped_ideal_answer=(
+            "Typically Apache POI: open the workbook (`XSSFWorkbook` for .xlsx), select a sheet, "
+            "read rows/cells into data structures, and feed rows into parameterized tests "
+            "(TestNG `@DataProvider` or JUnit equivalents) for data-driven automation."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000009"),
+        role_category="Java Automation Testing",
+        question_text="Explain hard vs soft assertions in TestNG.",
+        scraped_ideal_answer=(
+            "Hard assertions (`Assert.assert*`) stop the test on first failure. Soft assertions "
+            "(`SoftAssert`) collect failures and report them at `assertAll()`, useful when you "
+            "want to validate many UI fields in one test without stopping at the first mismatch."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000010"),
+        role_category="Java Automation Testing",
+        question_text="How would you perform API testing using Java?",
+        scraped_ideal_answer=(
+            "Common approach: Rest Assured to send GET/POST/PUT/DELETE, assert status codes, "
+            "headers, and JSON body (JsonPath or Hamcrest). Integrate with TestNG/JUnit and CI "
+            "for regression of services behind the UI."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000011"),
+        role_category="Java Automation Testing",
+        question_text="What is functional vs non-functional testing?",
+        scraped_ideal_answer=(
+            "Functional testing checks behavior against requirements (login, workflows). "
+            "Non-functional covers performance, security, reliability, usability (load, stress, "
+            "accessibility). Automation often focuses on functional regression plus selected "
+            "non-functional checks (e.g. basic performance gates)."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000012"),
+        role_category="Java Automation Testing",
+        question_text="How do you handle browser alerts and pop-ups in Selenium WebDriver?",
+        scraped_ideal_answer=(
+            "Use `driver.switchTo().alert()` to get an `Alert`, then `getText()`, `accept()`, or "
+            "`dismiss()`. For non-JS dialogs (e.g. file chooser), use different strategies "
+            "(AutoIt, robot, or avoiding native dialogs in tests)."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000013"),
+        role_category="Java Automation Testing",
+        question_text="What are common automation challenges and how do you address them?",
+        scraped_ideal_answer=(
+            "Dynamic locators and timing → explicit waits and stable selectors (data-testid). "
+            "Flaky tests → isolation, retries with logging, root-cause fixes. Maintenance → POM, "
+            "reuse, coding standards. Environment drift → containerized or consistent CI agents."
+        ),
+        source_url="https://www.geeksforgeeks.org/software-testing/automation-testing-interview-questions/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000014"),
+        role_category="Java Automation Testing",
+        question_text="What is the difference between Selenium RC and WebDriver?",
+        scraped_ideal_answer=(
+            "Selenium RC is deprecated: it injected JavaScript into the browser. WebDriver "
+            "drives the browser through vendor drivers (W3C WebDriver protocol), giving more "
+            "stable, faster control—always use WebDriver for new projects."
+        ),
+        source_url="https://www.vskills.in/interview-questions/selenium-automation-tester-using-java-interview-questions",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000015"),
+        role_category="Java Automation Testing",
+        question_text="What is TestNG and why is it used with Selenium?",
+        scraped_ideal_answer=(
+            "TestNG is a Java testing framework providing annotations, parallel execution, "
+            "grouping, dependency ordering, and reporting. It integrates cleanly with Selenium "
+            "for structured suites and CI pipelines."
+        ),
+        source_url="https://staragile.com/blog/automation-testing-interview-questions-answers",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000016"),
+        role_category="Java Automation Testing",
+        question_text="How do you run Selenium tests in parallel with Java?",
+        scraped_ideal_answer=(
+            "Use TestNG `parallel` (methods/classes/suites) with a thread-safe driver pattern "
+            "(e.g. ThreadLocal WebDriver), or JUnit 5 parallel config. Ensure tests do not share "
+            "mutable state or the same browser instance across threads."
+        ),
+        source_url="https://staragile.com/blog/automation-testing-interview-questions-answers",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000017"),
+        role_category="Java Automation Testing",
+        question_text="What is the difference between driver.findElement and findElements?",
+        scraped_ideal_answer=(
+            "`findElement` returns the first matching element or throws "
+            "`NoSuchElementException`. `findElements` returns a list (possibly empty). Use "
+            "`findElements` when checking optional UI elements without failing immediately."
+        ),
+        source_url="https://www.geeksforgeeks.org/software-testing/automation-testing-interview-questions/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000018"),
+        role_category="Java Automation Testing",
+        question_text="How would you integrate Java automation tests with Jenkins or CI/CD?",
+        scraped_ideal_answer=(
+            "Run Maven/Gradle in a pipeline stage, publish JUnit/TestNG XML results, archive "
+            "screenshots/videos on failure, parameterize browser/OS via agents or Selenium Grid, "
+            "and gate merges on stable smoke suites."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-000000000019"),
+        role_category="Java Automation Testing",
+        question_text="What is reflection in Java and when might it appear in test tooling?",
+        scraped_ideal_answer=(
+            "Reflection inspects or invokes classes/methods at runtime via the `Class` API. "
+            "Frameworks (Spring, some runners) use it; in tests it is rarely needed unless "
+            "testing legacy code or building custom runners—prefer public APIs when possible."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000001a"),
+        role_category="Java Automation Testing",
+        question_text="How do you verify a file download using Selenium and Java?",
+        scraped_ideal_answer=(
+            "Options: configure browser download directory, wait for file to appear with "
+            "FluentWait on the filesystem, assert size/name; or intercept download URL via network "
+            "or API instead of UI when possible. Avoid OS-native dialogs that Selenium cannot control."
+        ),
+        source_url="https://hirist.tech/blog/top-40-java-automation-testing-interview-questions-and-answers/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000001b"),
+        role_category="Java Automation Testing",
+        question_text="What is WebDriverManager (or similar) used for?",
+        scraped_ideal_answer=(
+            "It resolves and caches matching browser drivers (ChromeDriver, etc.) for the "
+            "installed browser version, avoiding manual PATH setup—speeding local and CI setup."
+        ),
+        source_url="https://www.geeksforgeeks.org/software-testing/automation-testing-interview-questions/",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000001c"),
+        role_category="Java Automation Testing",
+        question_text="What is the difference between quit() and close() on WebDriver?",
+        scraped_ideal_answer=(
+            "`close()` closes the current window/tab; `quit()` ends the session and closes all "
+            "windows and the driver process. Always `quit()` in teardown to avoid zombie "
+            "browser processes in CI."
+        ),
+        source_url="https://www.vskills.in/interview-questions/selenium-automation-tester-using-java-interview-questions",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000001d"),
+        role_category="Java Automation Testing",
+        question_text="What are XPath axes and when would you use them in Selenium?",
+        scraped_ideal_answer=(
+            "Axes (ancestor, following-sibling, etc.) navigate the DOM tree in XPath. Use when "
+            "elements lack stable IDs; prefer shorter, resilient paths and combine with "
+            "contains/text() carefully to reduce brittleness."
+        ),
+        source_url="https://staragile.com/blog/automation-testing-interview-questions-answers",
+    ),
+    Row(
+        question_id=uuid.UUID("d4000004-0004-4000-8000-00000000001e"),
+        role_category="Java Automation Testing",
+        question_text="What is BDD and how does Cucumber fit with Java automation?",
+        scraped_ideal_answer=(
+            "Behavior-Driven Development uses Given/When/Then specs (often Gherkin). Cucumber "
+            "binds steps to Java methods so stakeholders can read scenarios while tests remain "
+            "executable in CI."
+        ),
+        source_url="https://staragile.com/blog/automation-testing-interview-questions-answers",
+    ),
 )
 
 
