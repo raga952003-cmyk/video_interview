@@ -488,6 +488,13 @@ select {
   margin: 1rem 0 0.75rem;
 }
 
+.video-mode-intro {
+  margin: 1rem 0 0.75rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .video-mode-label {
   display: flex;
   gap: 0.65rem;
