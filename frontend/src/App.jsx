@@ -971,7 +971,7 @@ export default function App() {
                 onClick={startRecording}
                 disabled={loading || !cameraReady}
               >
-                Record video answer
+                Answer
               </button>
             ) : (
               <button
