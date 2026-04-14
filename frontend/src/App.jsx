@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { apiUrl } from "./apiBase";
 import "./App.css";
 
@@ -212,14 +218,6 @@ export default function App() {
           return;
         }
         streamRef.current = stream;
-        const el = videoPreviewRef.current;
-        if (el) {
-          el.srcObject = stream;
-          el.muted = true;
-          const play = () => el.play().catch(() => {});
-          el.onloadedmetadata = () => play();
-          play();
-        }
       } catch (e) {
         if (!cancelled) {
           setError(`Could not open camera: ${e?.message || String(e)}`);
@@ -239,6 +237,28 @@ export default function App() {
       }
     };
   }, [step, videoPreviewKey]);
+
+  /**
+   * The preview <video> only mounts once cameraReady is true, but getUserMedia runs before
+   * that re-render — so videoPreviewRef.current was null when we first set the stream.
+   * Bind srcObject after mount whenever we have both stream and element.
+   */
+  useLayoutEffect(() => {
+    if (step !== "interview" || !cameraReady || pendingRecording) return;
+    const stream = streamRef.current;
+    const el = videoPreviewRef.current;
+    if (!stream || !el) return;
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+    }
+    el.muted = true;
+    const play = () => el.play().catch(() => {});
+    el.onloadedmetadata = () => play();
+    play();
+    return () => {
+      el.onloadedmetadata = null;
+    };
+  }, [step, cameraReady, videoPreviewKey, pendingRecording]);
 
   const fetchResumeQuestion = async () => {
     const r = roleInput.trim();
